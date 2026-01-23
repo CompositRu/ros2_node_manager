@@ -1,0 +1,33 @@
+# ROS2 Node Manager - Server Configuration
+#
+# Configure your Docker containers here.
+# The first server in the list will be used for auto-connection on startup.
+
+servers:
+  # Local Docker container
+  - id: local
+    name: "Local Docker"
+    type: local
+    container: tram_autoware  # Change to your container name
+
+  # Remote server via SSH (example)
+  # - id: dev-server
+  #   name: "Development Server"
+  #   type: ssh
+  #   host: 192.168.1.100
+  #   port: 22
+  #   user: ubuntu
+  #   container: ros2_autoware
+  #   ssh_key: ~/.ssh/id_rsa
+  #   # Or use password:
+  #   # password: your_password
+
+  # Another remote server (example)
+  # - id: tram-test
+  #   name: "Tram Test Server"
+  #   type: ssh
+  #   host: 10.0.0.50
+  #   port: 22
+  #   user: autopilot
+  #   container: autoware_container
+  #   ssh_key: ~/.ssh/tram_key

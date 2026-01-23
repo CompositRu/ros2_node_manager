@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4b5563;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Log level colors */
+.log-debug { color: #9ca3af; }
+.log-info { color: #60a5fa; }
+.log-warn { color: #fbbf24; }
+.log-error { color: #f87171; }
+.log-fatal { color: #ef4444; font-weight: bold; }
+
+/* Tree view */
+.tree-item {
+  @apply cursor-pointer hover:bg-gray-700 rounded px-2 py-1;
+}
+
+.tree-item.selected {
+  @apply bg-blue-900 hover:bg-blue-800;
+}
+
+/* Node status indicators */
+.status-active {
+  @apply text-green-400;
+}
+
+.status-inactive {
+  @apply text-gray-500;
+}
+
+.status-unknown {
+  @apply text-yellow-400;
+}
+
+/* Type indicators */
+.type-lifecycle {
+  @apply text-purple-400;
+}
+
+.type-regular {
+  @apply text-blue-400;
+}
+
+.type-unknown {
+  @apply text-gray-400;
+}
