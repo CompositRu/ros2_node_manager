@@ -48,7 +48,7 @@ function App() {
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800 flex-shrink-0">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold text-blue-400">🤖 ROS2 Node Manager</h1>
+          <h1 className="text-xl font-bold text-blue-400">🚊 ROS2 Node Manager</h1>
           
           <ServerSelector
             servers={server.servers}
@@ -109,8 +109,9 @@ function App() {
           <div className="flex-1 overflow-hidden">
             {server.connected ? (
               <NodeDetailPanel
-                nodeName={selectedNode}
+                nodeName={selectedNode} 
                 onShowLogs={handleShowLogs}
+                onNodeChanged={() => nodes.refresh()}
               />
             ) : (
               <div className="h-full flex items-center justify-center text-gray-500">

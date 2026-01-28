@@ -1,46 +1,51 @@
 import { useState, useMemo } from 'react';
+import { ContextMenu } from './ContextMenu';
+import { ConfirmModal } from './ConfirmModal';
+import * as api from '../services/api';
 
 /**
  * Build tree structure from flat node list
  */
 function buildTree(nodes) {
-  const root = { children: {}, nodes: [], count: 0 };
+  const root = { children: {}, nodes: [], count: 0, activeCount: 0, lifecycleCount: 0 };
   
   for (const node of nodes) {
     const parts = node.name.split('/').filter(Boolean);
     let current = root;
     
-    // Navigate/create path
     for (let i = 0; i < parts.length - 1; i++) {
       const part = parts[i];
       if (!current.children[part]) {
-        current.children[part] = { children: {}, nodes: [], count: 0 };
+        current.children[part] = { children: {}, nodes: [], count: 0, activeCount: 0, lifecycleCount: 0 };
       }
       current = current.children[part];
     }
     
-    // Add node to final location
     current.nodes.push(node);
   }
   
-  // Calculate counts
-  function calcCount(node) {
+  function calcCounts(node) {
     let count = node.nodes.length;
+    let activeCount = node.nodes.filter(n => n.status === 'active').length;
+    let lifecycleCount = node.nodes.filter(n => n.type === 'lifecycle' && n.status === 'active').length;
+    
     for (const child of Object.values(node.children)) {
-      count += calcCount(child);
+      calcCounts(child);
+      count += child.count;
+      activeCount += child.activeCount;
+      lifecycleCount += child.lifecycleCount;
     }
+    
     node.count = count;
-    return count;
+    node.activeCount = activeCount;
+    node.lifecycleCount = lifecycleCount;
   }
-  calcCount(root);
+  calcCounts(root);
   
   return root;
 }
 
-/**
- * Status indicator component
- */
-function StatusIndicator({ status, type, lifecycleState }) {
+function StatusIndicator({ status, type }) {
   let statusColor = 'text-gray-500';
   let statusSymbol = '○';
   
@@ -49,7 +54,6 @@ function StatusIndicator({ status, type, lifecycleState }) {
     statusSymbol = '●';
   }
   
-  // Add lifecycle indicator
   let typeIndicator = '';
   if (type === 'lifecycle') {
     typeIndicator = '◐';
@@ -69,25 +73,38 @@ function StatusIndicator({ status, type, lifecycleState }) {
   );
 }
 
-/**
- * Tree node component (recursive)
- */
-function TreeNode({ name, data, path, level, selectedNode, onSelectNode, expandedPaths, onTogglePath }) {
+function TreeNode({ 
+  name, 
+  data, 
+  path, 
+  level, 
+  selectedNode, 
+  onSelectNode, 
+  expandedPaths, 
+  onTogglePath,
+  onContextMenu 
+}) {
   const fullPath = path ? `${path}/${name}` : `/${name}`;
   const isExpanded = expandedPaths.has(fullPath);
   const hasChildren = Object.keys(data.children).length > 0 || data.nodes.length > 0;
-  
+
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu(e, fullPath, data);
+  };
+
   const toggleExpand = (e) => {
     e.stopPropagation();
     onTogglePath(fullPath);
   };
-  
+
   return (
     <div className="select-none">
-      {/* Namespace header */}
       <div
         className="flex items-center gap-1 py-0.5 px-1 hover:bg-gray-700 rounded cursor-pointer"
         onClick={toggleExpand}
+        onContextMenu={handleContextMenu}
         style={{ paddingLeft: `${level * 12}px` }}
       >
         {hasChildren && (
@@ -98,13 +115,13 @@ function TreeNode({ name, data, path, level, selectedNode, onSelectNode, expande
         {!hasChildren && <span className="w-4" />}
         
         <span className="text-blue-400">/{name}</span>
-        <span className="text-gray-500 text-xs">({data.count})</span>
+        <span className="text-gray-500 text-xs">
+          ({data.activeCount}/{data.count})
+        </span>
       </div>
       
-      {/* Children */}
       {isExpanded && (
         <div>
-          {/* Child namespaces */}
           {Object.entries(data.children)
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([childName, childData]) => (
@@ -118,10 +135,10 @@ function TreeNode({ name, data, path, level, selectedNode, onSelectNode, expande
                 onSelectNode={onSelectNode}
                 expandedPaths={expandedPaths}
                 onTogglePath={onTogglePath}
+                onContextMenu={onContextMenu}
               />
             ))}
           
-          {/* Nodes in this namespace */}
           {data.nodes
             .sort((a, b) => a.name.localeCompare(b.name))
             .map(node => {
@@ -137,11 +154,7 @@ function TreeNode({ name, data, path, level, selectedNode, onSelectNode, expande
                   style={{ paddingLeft: `${(level + 1) * 12 + 16}px` }}
                   onClick={() => onSelectNode(node.name)}
                 >
-                  <StatusIndicator
-                    status={node.status}
-                    type={node.type}
-                    lifecycleState={node.lifecycle_state}
-                  />
+                  <StatusIndicator status={node.status} type={node.type} />
                   <span className={node.status === 'active' ? 'text-white' : 'text-gray-500'}>
                     {nodeName}
                   </span>
@@ -154,11 +167,12 @@ function TreeNode({ name, data, path, level, selectedNode, onSelectNode, expande
   );
 }
 
-/**
- * Main NodeTree component
- */
 export function NodeTree({ nodes, selectedNode, onSelectNode }) {
   const [expandedPaths, setExpandedPaths] = useState(new Set(['/']));
+  const [contextMenu, setContextMenu] = useState(null);
+  const [confirmModal, setConfirmModal] = useState(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionResults, setActionResults] = useState(null);
   
   const tree = useMemo(() => buildTree(nodes), [nodes]);
   
@@ -173,8 +187,57 @@ export function NodeTree({ nodes, selectedNode, onSelectNode }) {
       return next;
     });
   };
-  
-  // Expand all
+
+  const handleContextMenu = (e, path, data) => {
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      path,
+      data
+    });
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu(null);
+  };
+
+  const handleGroupShutdown = async () => {
+    if (!confirmModal) return;
+    
+    setActionLoading(true);
+    setActionResults(null);
+    
+    try {
+      const result = await api.groupAction(confirmModal.path, 'shutdown', false);
+      setActionResults(result.results);
+    } catch (err) {
+      setActionResults([{ node: 'Error', success: false, message: err.message }]);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleGroupKill = async () => {
+    if (!confirmModal) return;
+    
+    setActionLoading(true);
+    setActionResults(null);
+    
+    try {
+      const result = await api.groupAction(confirmModal.path, 'kill', true);
+      setActionResults(result.results);
+    } catch (err) {
+      setActionResults([{ node: 'Error', success: false, message: err.message }]);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const closeModal = () => {
+    setConfirmModal(null);
+    setActionResults(null);
+  };
+
   const expandAll = () => {
     const paths = new Set(['/']);
     const addPaths = (data, path) => {
@@ -187,12 +250,58 @@ export function NodeTree({ nodes, selectedNode, onSelectNode }) {
     addPaths(tree, '');
     setExpandedPaths(paths);
   };
-  
-  // Collapse all
+
   const collapseAll = () => {
     setExpandedPaths(new Set(['/']));
   };
-  
+
+  const getContextMenuItems = () => {
+    if (!contextMenu) return [];
+    
+    const { data, path } = contextMenu;
+    
+    return [
+      {
+        label: `Shutdown lifecycle nodes`,
+        icon: '⏹',
+        count: data.lifecycleCount,
+        disabled: data.lifecycleCount === 0,
+        onClick: () => setConfirmModal({
+          type: 'shutdown',
+          path,
+          count: data.lifecycleCount,
+          title: '⏹ Shutdown Lifecycle Nodes',
+          message: `This will shutdown ${data.lifecycleCount} lifecycle node(s) in:\n${path}\n\nThis action uses 'ros2 lifecycle set shutdown'.`
+        })
+      },
+      {
+        label: `Kill all nodes`,
+        icon: '💀',
+        count: data.activeCount,
+        disabled: data.activeCount === 0,
+        danger: true,
+        onClick: () => setConfirmModal({
+          type: 'kill',
+          path,
+          count: data.activeCount,
+          title: '💀 Kill All Nodes',
+          message: `⚠️ WARNING: This will forcefully KILL ${data.activeCount} node(s) in:\n${path}\n\nThis may cause issues if nodes don't restart properly!`
+        })
+      },
+      { separator: true },
+      {
+        label: 'Expand all',
+        icon: '📂',
+        onClick: expandAll
+      },
+      {
+        label: 'Collapse all', 
+        icon: '📁',
+        onClick: collapseAll
+      }
+    ];
+  };
+
   return (
     <div className="h-full flex flex-col">
       {/* Toolbar */}
@@ -228,10 +337,10 @@ export function NodeTree({ nodes, selectedNode, onSelectNode }) {
               onSelectNode={onSelectNode}
               expandedPaths={expandedPaths}
               onTogglePath={togglePath}
+              onContextMenu={handleContextMenu}
             />
           ))}
         
-        {/* Root level nodes (unlikely but handle it) */}
         {tree.nodes.map(node => (
           <div
             key={node.name}
@@ -258,9 +367,33 @@ export function NodeTree({ nodes, selectedNode, onSelectNode }) {
           <span><span className="text-green-400">●</span> Active</span>
           <span><span className="text-gray-500">○</span> Inactive</span>
           <span><span className="text-purple-400">◐</span> Lifecycle</span>
-          <span><span className="text-yellow-400">?</span> Unknown</span>
+          <span className="text-gray-600">Right-click for actions</span>
         </div>
       </div>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={getContextMenuItems()}
+          onClose={closeContextMenu}
+        />
+      )}
+
+      {/* Confirm Modal */}
+      {confirmModal && (
+        <ConfirmModal
+          title={confirmModal.title}
+          message={confirmModal.message}
+          confirmText={confirmModal.type === 'kill' ? 'Kill All' : 'Shutdown All'}
+          danger={confirmModal.type === 'kill'}
+          loading={actionLoading}
+          results={actionResults}
+          onConfirm={confirmModal.type === 'kill' ? handleGroupKill : handleGroupShutdown}
+          onCancel={closeModal}
+        />
+      )}
     </div>
   );
 }

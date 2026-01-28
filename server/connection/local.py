@@ -102,7 +102,7 @@ class LocalDockerConnection(BaseConnection):
         ros_env = (
             'ROS_DOMAIN_ID=$(cat $HOME/tram.autoware/.ros_domain_id 2>/dev/null || echo 0) && '
             'export ROS_DOMAIN_ID && '
-            'export ROS_LOCALHOST_ONLY=1'
+            'export ROS_LOCALHOST_ONLY=1 && '
+            'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp'
         )
-        # Добавляем script для отключения буферизации (эмулирует TTY)
         return f"docker exec {self.container} script -q -c \"bash -c '{ros_env} && source {self.ros_setup} && {escaped_cmd}'\" /dev/null"

@@ -48,10 +48,9 @@ export async function getNodes(refresh = true) {
   return request(`/nodes?refresh=${refresh}`);
 }
 
-export async function getNodeDetail(nodeName) {
-  // Remove leading slash for URL
+export async function getNodeDetail(nodeName, refresh = true) {
   const path = nodeName.startsWith('/') ? nodeName.slice(1) : nodeName;
-  return request(`/nodes/${path}`);
+  return request(`/nodes/${path}?refresh=${refresh}`);
 }
 
 export async function shutdownNode(nodeName, force = false) {
@@ -66,4 +65,23 @@ export async function shutdownNode(nodeName, force = false) {
 
 export async function getHealth() {
   return request('/health');
+}
+
+// === Lifecycle API ===
+
+export async function lifecycleTransition(nodeName, transition) {
+  const path = nodeName.startsWith('/') ? nodeName.slice(1) : nodeName;
+  return request(`/nodes/${path}/lifecycle`, {
+    method: 'POST',
+    body: JSON.stringify({ transition }),
+  });
+}
+
+// === Group Actions API ===
+
+export async function groupAction(namespace, action, force = false) {
+  return request('/nodes/group/action', {
+    method: 'POST',
+    body: JSON.stringify({ namespace, action, force }),
+  });
 }

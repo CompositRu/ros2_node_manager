@@ -48,7 +48,8 @@ class BaseConnection(ABC):
         ros_env = (
             'ROS_DOMAIN_ID=$(cat $HOME/tram.autoware/.ros_domain_id 2>/dev/null || echo 0) && '
             'export ROS_DOMAIN_ID && '
-            'export ROS_LOCALHOST_ONLY=1'
+            'export ROS_LOCALHOST_ONLY=1 && '
+            'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp'
         )
         return f"docker exec {self.container} bash -c '{ros_env} && source {self.ros_setup} && {escaped_cmd}'"
     
@@ -77,17 +78,30 @@ class BaseConnection(ABC):
     async def ros2_param_dump(self, node_name: str) -> dict:
         """Get all parameters of a node."""
         try:
-            output = await self.exec_command(f"ros2 param dump {node_name} --print")
+            output = await self.exec_command(f"ros2 param dump {node_name}")
+            
+            # Filter out the "Git config" line and parse YAML
+            lines = output.strip().split('\n')
+            filtered_lines = [l for l in lines if not l.startswith('Git config')]
+            clean_output = '\n'.join(filtered_lines)
+            
             import yaml
-            data = yaml.safe_load(output)
-            # Extract parameters from the nested structure
-            if data and node_name.lstrip('/').replace('/', '.') in str(data):
-                # Find the ros__parameters section
-                for key in data:
-                    if 'ros__parameters' in data.get(key, {}):
-                        return data[key]['ros__parameters']
-            return data or {}
-        except Exception:
+            data = yaml.safe_load(clean_output)
+            
+            if not data:
+                return {}
+            
+            # Structure: {node_name: {ros__parameters: {...}}}
+            # We need to extract ros__parameters
+            for key, value in data.items():
+                if isinstance(value, dict) and 'ros__parameters' in value:
+                    return value['ros__parameters']
+            
+            # If no ros__parameters found, return the whole thing
+            return data
+            
+        except Exception as e:
+            print(f"Error getting params for {node_name}: {e}")
             return {}
     
     async def ros2_service_list(self) -> list[str]:
@@ -95,32 +109,66 @@ class BaseConnection(ABC):
         output = await self.exec_command("ros2 service list")
         services = [s.strip() for s in output.strip().split("\n") if s.strip()]
         return services
-    
+        
     async def is_lifecycle_node(self, node_name: str) -> bool:
         """Check if node is a lifecycle node."""
-        services = await self.ros2_service_list()
         get_state_service = f"{node_name}/get_state"
-        return get_state_service in services
+        
+        # Используем кэшированный список сервисов
+        if not hasattr(self, '_services_cache') or self._services_cache is None:
+            await self._refresh_services_cache()
+        
+        return get_state_service in self._services_cache
+
+    async def _refresh_services_cache(self) -> None:
+        """Refresh cached list of services."""
+        try:
+            output = await self.exec_command("ros2 service list", timeout=30.0)
+            lines = output.strip().split('\n')
+            self._services_cache = set(line.strip() for line in lines if line.strip().startswith('/'))
+            # print(f"DEBUG: Cached {len(self._services_cache)} services")
+        except Exception as e:
+            print(f"Error refreshing services cache: {e}")
+            self._services_cache = set()
+
+    def invalidate_services_cache(self) -> None:
+        """Invalidate services cache."""
+        self._services_cache = None
     
     async def ros2_lifecycle_get_state(self, node_name: str) -> Optional[str]:
-        """Get lifecycle state of a node."""
+        """Get current lifecycle state of a node."""
         try:
             output = await self.exec_command(f"ros2 lifecycle get {node_name}")
-            # Output format: "current state: active" or similar
-            if "current state:" in output.lower():
-                state = output.split(":")[-1].strip().lower()
-                return state
+            # Filter Git config and parse state
+            for line in output.strip().split('\n'):
+                line = line.strip()
+                if line.startswith('Git config'):
+                    continue
+                if line:
+                    # Format: "active [3]" or "finalized [4]"
+                    # Extract just the state name
+                    state = line.split('[')[0].strip().lower()
+                    return state
             return None
-        except Exception:
+        except Exception as e:
+            print(f"Error getting lifecycle state for {node_name}: {e}")
             return None
     
-    async def ros2_lifecycle_set(self, node_name: str, transition: str) -> bool:
+    async def ros2_lifecycle_set(self, node_name: str, transition: str) -> tuple[bool, str]:
         """Set lifecycle state (activate, deactivate, shutdown, etc.)."""
         try:
-            await self.exec_command(f"ros2 lifecycle set {node_name} {transition}")
-            return True
-        except Exception:
-            return False
+            output = await self.exec_command(f"ros2 lifecycle set {node_name} {transition}")
+            # Filter out Git config line
+            lines = [l for l in output.strip().split('\n') if not l.startswith('Git config')]
+            clean_output = '\n'.join(lines).strip()
+            return True, clean_output or f"Transition '{transition}' successful"
+        except Exception as e:
+            error_msg = str(e)
+            # Filter Git config from error too
+            if 'Git config' in error_msg:
+                lines = [l for l in error_msg.split('\n') if 'Git config' not in l]
+                error_msg = '\n'.join(lines).strip()
+            return False, error_msg
     
     async def kill_process(self, pattern: str) -> bool:
         """Try to kill a process by pattern (inside Docker)."""
