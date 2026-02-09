@@ -111,3 +111,61 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
             })
         except:
             pass
+
+@router.websocket("/ws/alerts")
+async def alerts_websocket(websocket: WebSocket):
+    """
+    WebSocket for real-time alert notifications.
+    
+    Sends alerts in format:
+    {
+        "type": "alert",
+        "id": "abc123",
+        "alert_type": "node_inactive",
+        "severity": "error",
+        "title": "Нода отключилась",
+        "message": "/sensing/lidar/top/rslidar_node",
+        "timestamp": "2026-01-26T15:30:00",
+        "details": {...}
+    }
+    """
+    from ..main import app_state
+
+    await websocket.accept()
+
+    if not app_state.alert_service:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Alert service not available"
+        })
+        await websocket.close()
+        return
+
+    try:
+        # Send initial connection confirmation
+        await websocket.send_json({
+            "type": "connected",
+            "message": "Connected to alert stream"
+        })
+
+        # Stream alerts
+        async for alert in app_state.alert_service.get_alerts():
+            try:
+                await websocket.send_json({
+                    "type": "alert",
+                    "id": alert.id,
+                    "alert_type": alert.alert_type.value,
+                    "severity": alert.severity.value,
+                    "title": alert.title,
+                    "message": alert.message,
+                    "timestamp": alert.timestamp.isoformat(),
+                    "details": alert.details
+                })
+            except Exception as e:
+                print(f"Error sending alert: {e}")
+                break
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"Alerts WebSocket error: {e}")

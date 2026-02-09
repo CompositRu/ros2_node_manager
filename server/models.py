@@ -1,10 +1,10 @@
 """Pydantic models for ROS2 Node Manager."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
 from pydantic import BaseModel, Field
-
+import uuid
 
 class NodeType(str, Enum):
     """Тип ноды."""
@@ -135,3 +135,54 @@ class WSLogMessage(BaseModel):
     timestamp: str
     level: str
     message: str
+
+
+
+# === Alert Models ===
+
+class AlertType(str, Enum):
+    """Тип алерта."""
+    NODE_INACTIVE = "node_inactive"
+    NODE_RECOVERED = "node_recovered"
+    MISSING_TOPIC = "missing_topic"
+    TOPIC_RECOVERED = "topic_recovered"
+    ERROR_PATTERN = "error_pattern"
+    TOPIC_VALUE = "topic_value"
+
+
+class AlertSeverity(str, Enum):
+    """Уровень серьёзности алерта."""
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+
+
+class Alert(BaseModel):
+    """Алерт."""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8])
+    alert_type: AlertType
+    severity: AlertSeverity
+    title: str
+    message: str
+    timestamp: datetime = Field(default_factory=datetime.now)
+    details: dict = Field(default_factory=dict)
+
+
+class AlertConfig(BaseModel):
+    """Конфигурация алертов."""
+    enabled: bool = True
+    
+    # Cooldown между повторными алертами одного типа (секунды)
+    cooldown_seconds: int = 60
+    
+    # Важные топики - алерт если отсутствуют
+    important_topics: list[str] = Field(default_factory=list)
+    
+    # Паттерны ошибок в /rosout
+    error_patterns: list[dict] = Field(default_factory=list)
+    # Пример: [{"pattern": "FATAL", "severity": "critical"}]
+    
+    # Топики для мониторинга значений
+    monitored_topics: list[dict] = Field(default_factory=list)
+    # Пример: [{"topic": "/system/emergency", "field": "data", "alert_on_value": true}]

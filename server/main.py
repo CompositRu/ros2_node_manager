@@ -10,12 +10,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from .config import settings, load_servers_config, get_server_by_id
+# from .config import settings, load_servers_config, get_server_by_id
 from .models import ServerConfig, ServerType
 from .connection import BaseConnection, LocalDockerConnection, SSHDockerConnection, ConnectionError
 from .state import StatePersister
-from .services import NodeService
+# from .services import NodeServicee
 from .routers import servers_router, nodes_router, websocket_router
+from .config import settings, load_servers_config, get_server_by_id, load_alert_config
+from .services import NodeService, AlertService
 
 
 @dataclass
@@ -25,6 +27,7 @@ class AppState:
     current_server_id: Optional[str] = None
     node_service: Optional[NodeService] = None
     persister: Optional[StatePersister] = None
+    alert_service: Optional[AlertService] = None
 
 
 # Global state
@@ -32,12 +35,18 @@ app_state = AppState()
 
 
 async def connect_to_server(
-    server: ServerConfig, 
+    server: ServerConfig,
+    # servers: dict[str, ServerConfig],
     password_override: Optional[str] = None
 ) -> None:
     """Connect to a server and initialize services."""
     global app_state
     
+    # Stop previous alert service if running
+    if app_state.alert_service:
+        await app_state.alert_service.stop()
+        app_state.alert_service = None
+
     # Disconnect from current server if any
     if app_state.connection:
         await app_state.connection.disconnect()
@@ -63,12 +72,18 @@ async def connect_to_server(
     persister.load()
     
     node_service = NodeService(connection, persister)
-    
+
+    # Initialize alert service
+    alert_config = load_alert_config()
+    alert_service = AlertService(connection, alert_config)
+    await alert_service.start()
+
     # Update state
     app_state.connection = connection
     app_state.current_server_id = server.id
     app_state.persister = persister
     app_state.node_service = node_service
+    app_state.alert_service = alert_service
 
 
 @asynccontextmanager
@@ -95,6 +110,8 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     print("👋 Shutting down...")
+    if app_state.alert_service:
+        await app_state.alert_service.stop()
     if app_state.connection:
         await app_state.connection.disconnect()
 

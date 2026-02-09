@@ -1,0 +1,38 @@
+# Alert configuration for ROS2 Node Manager
+# Файл: config/alerts.yaml
+
+# Enable/disable alert system
+enabled: true
+
+# Cooldown between repeated alerts of the same type (seconds)
+# Prevents alert spam when nodes "flicker"
+cooldown_seconds: 60
+
+# Important topics - alert if missing
+# Leave empty for now, add as needed
+important_topics: []
+# Example:
+#   - /sensing/lidar/concatenated/pointcloud
+#   - /localization/kinematic_state
+#   - /control/command/control_cmd
+
+# Error patterns to match in /rosout messages
+# Leave empty for now, add as needed
+error_patterns: []
+# Example:
+#   - pattern: "FATAL"
+#     severity: critical
+#   - pattern: "Segmentation fault"
+#     severity: critical
+#   - pattern: "TF_OLD_DATA"
+#     severity: warning
+#   - pattern: "out of memory"
+#     severity: error
+
+# Topics to monitor for specific values
+# Leave empty for now, add as needed
+monitored_topics: []
+# Example:
+#   - topic: /system/emergency/is_emergency
+#     field: data
+#     alert_on_value: true  # Alert when value becomes true

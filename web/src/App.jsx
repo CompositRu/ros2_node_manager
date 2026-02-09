@@ -7,6 +7,8 @@ import { NodeTree } from './components/NodeTree';
 import { NodeDetailPanel } from './components/NodeDetailPanel';
 import { LogPanel } from './components/LogPanel';
 import { HorizontalResizer, VerticalResizer } from './components/Resizer';
+import { useAlerts } from './hooks/useAlerts';
+import { ToastContainer } from './components/ToastContainer';
 
 // Min/max constraints
 const MIN_TREE_WIDTH = 200;
@@ -18,8 +20,13 @@ const DEFAULT_LOG_HEIGHT = 256;
 
 function App() {
   const server = useServer();
+  // console.log('Full server object:', server);  // <-- Весь объект
+  // console.log('server.current:', server.current); 
   const nodes = useNodes();
   
+  // useAlerts(!!server.currentServer);
+  useAlerts(server.connected);
+
   const [selectedNode, setSelectedNode] = useState(null);
   const [logNode, setLogNode] = useState(null);
   
@@ -146,6 +153,7 @@ function App() {
           )}
         </div>
       </footer>
+       <ToastContainer />
     </div>
   );
 }

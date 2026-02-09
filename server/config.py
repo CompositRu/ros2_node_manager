@@ -7,7 +7,7 @@ from typing import Optional
 import yaml
 from pydantic_settings import BaseSettings
 
-from .models import ServerConfig, ServerType
+from .models import ServerConfig, ServerType, AlertConfig
 
 
 class Settings(BaseSettings):
@@ -71,3 +71,26 @@ def get_server_by_id(server_id: str) -> Optional[ServerConfig]:
         if srv.id == server_id:
             return srv
     return None
+
+
+def load_alert_config() -> AlertConfig:
+    """Load alert configuration from YAML file."""
+    # Сначала пробуем отдельный файл alerts.yaml
+    alerts_file = settings.config_dir / "alerts.yaml"
+    if alerts_file.exists():
+        with open(alerts_file) as f:
+            data = yaml.safe_load(f)
+            if data:
+                return AlertConfig(**data)
+    
+    # Fallback: читаем из servers.yaml
+    servers_file = settings.config_dir / "servers.yaml"
+    if servers_file.exists():
+        with open(servers_file) as f:
+            data = yaml.safe_load(f)
+            alerts_data = data.get("alerts", {})
+            if alerts_data:
+                return AlertConfig(**alerts_data)
+    
+    # Default config
+    return AlertConfig()
