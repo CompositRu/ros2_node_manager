@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useServer } from './hooks/useServer';
 import { useNodes } from './hooks/useNodes';
 import { ServerSelector } from './components/ServerSelector';
@@ -21,11 +21,20 @@ const DEFAULT_LOG_HEIGHT = 256;
 function App() {
   const server = useServer();
   // console.log('Full server object:', server);  // <-- Весь объект
-  // console.log('server.current:', server.current); 
-  const nodes = useNodes();
-  
+  // console.log('server.current:', server.current);
+  const nodes = useNodes({ onDisconnect: server.handleServerDisconnected });
+
   // useAlerts(!!server.currentServer);
   useAlerts(server.connected);
+
+  // Refresh nodes when server connection changes to connected
+  const wasConnected = useRef(server.connected);
+  useEffect(() => {
+    if (server.connected && !wasConnected.current) {
+      nodes.refresh();
+    }
+    wasConnected.current = server.connected;
+  }, [server.connected, nodes.refresh]);
 
   const [selectedNode, setSelectedNode] = useState(null);
   const [logNode, setLogNode] = useState(null);

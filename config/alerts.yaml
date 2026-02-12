@@ -6,11 +6,13 @@ enabled: true
 
 # Cooldown between repeated alerts of the same type (seconds)
 # Prevents alert spam when nodes "flicker"
-cooldown_seconds: 60
+cooldown_seconds: 30
 
 # Important topics - alert if missing
 # Leave empty for now, add as needed
-important_topics: []
+important_topics:
+  - /sensing/lidar/concatenated/pointcloud
+  - /localization/kinematic_state
 # Example:
 #   - /sensing/lidar/concatenated/pointcloud
 #   - /localization/kinematic_state
@@ -18,7 +20,9 @@ important_topics: []
 
 # Error patterns to match in /rosout messages
 # Leave empty for now, add as needed
-error_patterns: []
+error_patterns:
+  - pattern: "The number of iterations has reached its upper limit"
+    severity: warning
 # Example:
 #   - pattern: "FATAL"
 #     severity: critical

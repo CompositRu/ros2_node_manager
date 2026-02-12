@@ -94,16 +94,12 @@ async def connect_to_server(request: ConnectRequest):
 @router.post("/disconnect")
 async def disconnect_from_server():
     """Disconnect from current server."""
-    from ..main import app_state
-    
+    from ..main import app_state, disconnect_server
+
+    old_server = app_state.current_server_id
+
     if app_state.connection:
-        await app_state.connection.disconnect()
-        app_state.connection = None
-        app_state.node_service = None
-        
-        old_server = app_state.current_server_id
-        app_state.current_server_id = None
-        
+        await disconnect_server()
         return {"success": True, "message": f"Disconnected from {old_server}"}
-    
+
     return {"success": True, "message": "Not connected"}

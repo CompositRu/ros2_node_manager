@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 
 # from .config import settings, load_servers_config, get_server_by_id
 from .models import ServerConfig, ServerType
-from .connection import BaseConnection, LocalDockerConnection, SSHDockerConnection, ConnectionError
+from .connection import BaseConnection, LocalDockerConnection, SSHDockerConnection, ConnectionError, ContainerNotFoundError
 from .state import StatePersister
 # from .services import NodeServicee
 from .routers import servers_router, nodes_router, websocket_router
@@ -84,6 +84,31 @@ async def connect_to_server(
     app_state.persister = persister
     app_state.node_service = node_service
     app_state.alert_service = alert_service
+
+
+async def disconnect_server() -> None:
+    """Disconnect from current server and cleanup services."""
+    global app_state
+
+    # Stop alert service
+    if app_state.alert_service:
+        await app_state.alert_service.stop()
+        app_state.alert_service = None
+
+    # Disconnect
+    if app_state.connection:
+        try:
+            await app_state.connection.disconnect()
+        except Exception as e:
+            print(f"Error during disconnect: {e}")
+        app_state.connection = None
+
+    # Clear state
+    app_state.node_service = None
+    app_state.current_server_id = None
+    app_state.persister = None
+
+    print("🔌 Disconnected from server")
 
 
 @asynccontextmanager

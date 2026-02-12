@@ -77,6 +77,13 @@ export function useServer() {
     }
   }, [fetchServers]);
   
+  // Called when server disconnects unexpectedly (e.g., container stopped)
+  const handleServerDisconnected = useCallback(() => {
+    setConnected(false);
+    setCurrentServer(null);
+    fetchServers();
+  }, [fetchServers]);
+
   return {
     servers,
     currentServer,
@@ -86,5 +93,6 @@ export function useServer() {
     connect,
     disconnect,
     refresh: fetchServers,
+    handleServerDisconnected,
   };
 }

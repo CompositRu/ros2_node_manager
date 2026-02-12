@@ -3,7 +3,7 @@
 import asyncio
 from typing import AsyncIterator
 
-from .base import BaseConnection, ConnectionError
+from .base import BaseConnection, ConnectionError, ContainerNotFoundError
 
 
 class LocalDockerConnection(BaseConnection):
@@ -56,6 +56,9 @@ class LocalDockerConnection(BaseConnection):
             
             if proc.returncode != 0:
                 error_msg = stderr.decode().strip() or f"Command failed with code {proc.returncode}"
+                if "No such container" in error_msg:
+                    self._connected = False
+                    raise ContainerNotFoundError(f"Container '{self.container}' not found or stopped")
                 raise ConnectionError(error_msg)
             
             return stdout.decode()

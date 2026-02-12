@@ -7,6 +7,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import NodeStatus
 from ..services import stream_node_logs
+from ..connection import ContainerNotFoundError
 
 router = APIRouter(tags=["websocket"])
 
@@ -17,39 +18,54 @@ async def nodes_status_websocket(websocket: WebSocket):
     WebSocket for real-time node status updates.
     Sends updates every 5 seconds.
     """
-    from ..main import app_state
-    
+    from ..main import app_state, disconnect_server
+
     await websocket.accept()
-    
+
     try:
         while True:
             if app_state.node_service:
-                # Refresh nodes
-                response = await app_state.node_service.refresh_nodes()
-                
-                # Build status dict
-                nodes_status = {
-                    n.name: n.status.value
-                    for n in response.nodes
-                }
-                
-                # Send update
-                await websocket.send_json({
-                    "type": "nodes_update",
-                    "total": response.total,
-                    "active": response.active,
-                    "inactive": response.inactive,
-                    "nodes": nodes_status,
-                    "timestamp": datetime.now().isoformat()
-                })
+                try:
+                    # Refresh nodes
+                    response = await app_state.node_service.refresh_nodes()
+
+                    # Build status dict
+                    nodes_status = {
+                        n.name: n.status.value
+                        for n in response.nodes
+                    }
+
+                    # Send update
+                    await websocket.send_json({
+                        "type": "nodes_update",
+                        "total": response.total,
+                        "active": response.active,
+                        "inactive": response.inactive,
+                        "nodes": nodes_status,
+                        "timestamp": datetime.now().isoformat()
+                    })
+                except ContainerNotFoundError as e:
+                    print(f"Container stopped, auto-disconnecting: {e}")
+                    # Notify client about container stop
+                    await websocket.send_json({
+                        "type": "container_stopped",
+                        "message": str(e)
+                    })
+                    # Disconnect from server
+                    await disconnect_server()
+                    # Send disconnected status
+                    await websocket.send_json({
+                        "type": "disconnected",
+                        "message": "Server disconnected due to container stop"
+                    })
             else:
                 await websocket.send_json({
                     "type": "disconnected",
                     "message": "Not connected to server"
                 })
-            
+
             await asyncio.sleep(5)
-            
+
     except WebSocketDisconnect:
         pass
     except Exception as e:

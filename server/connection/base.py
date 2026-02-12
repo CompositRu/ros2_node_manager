@@ -9,6 +9,11 @@ class ConnectionError(Exception):
     pass
 
 
+class ContainerNotFoundError(ConnectionError):
+    """Container not found or stopped."""
+    pass
+
+
 class BaseConnection(ABC):
     """Abstract base class for Docker connections."""
     

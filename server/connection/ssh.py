@@ -5,7 +5,7 @@ from typing import AsyncIterator, Optional
 
 import asyncssh
 
-from .base import BaseConnection, ConnectionError
+from .base import BaseConnection, ConnectionError, ContainerNotFoundError
 
 
 class SSHDockerConnection(BaseConnection):
@@ -91,6 +91,9 @@ class SSHDockerConnection(BaseConnection):
             
             if result.exit_status != 0:
                 error_msg = result.stderr.strip() or f"Command failed with code {result.exit_status}"
+                if "No such container" in error_msg:
+                    self._connected = False
+                    raise ContainerNotFoundError(f"Container '{self.container}' not found or stopped")
                 raise ConnectionError(error_msg)
             
             return result.stdout
@@ -104,14 +107,23 @@ class SSHDockerConnection(BaseConnection):
         """Execute command and stream output via SSH."""
         if not self._connected or not self._conn:
             raise ConnectionError("Not connected")
-        
+
         full_cmd = self._build_docker_cmd(cmd)
         
-        async with self._conn.create_process(full_cmd) as proc:
-            try:
+        # Используем stdbuf для отключения буферизации
+        # или python -u для unbuffered output
+        unbuffered_cmd = f"stdbuf -oL -eL {full_cmd}"
+        
+        try:
+            async with self._conn.create_process(
+                unbuffered_cmd,
+                term_type='xterm',  # Запрашиваем PTY для unbuffered output
+            ) as proc:
                 async for line in proc.stdout:
-                    yield line.rstrip('\n')
-            except asyncssh.Error:
-                pass
-            finally:
-                proc.terminate()
+                    stripped = line.rstrip('\n\r')
+                    if stripped:
+                        yield stripped
+        except asyncssh.Error as e:
+            print(f"SSH exec_stream error: {e}")
+        except Exception as e:
+            print(f"exec_stream error: {e}")
