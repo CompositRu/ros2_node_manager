@@ -4,23 +4,19 @@
 # The first server in the list will be used for auto-connection on startup.
 
 servers:
-  # Local Docker container
   - id: local
     name: "Local Docker"
     type: local
-    container: tram_autoware  # Change to your container name
+    container: tram_autoware
 
-  # Remote server via SSH (example)
-  # - id: dev-server
-  #   name: "Development Server"
-  #   type: ssh
-  #   host: 192.168.1.100
-  #   port: 22
-  #   user: ubuntu
-  #   container: ros2_autoware
-  #   ssh_key: ~/.ssh/id_rsa
-  #   # Or use password:
-  #   # password: your_password
+  - id: server_30639
+    name: "Tram_30639"
+    type: ssh
+    host: 192.168.242.7
+    port: 22
+    user: tram
+    container: tram_autoware
+    password: "1qaz@WSX"
 
   # Another remote server (example)
   # - id: tram-test
