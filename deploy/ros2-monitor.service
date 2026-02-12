@@ -1,0 +1,35 @@
+[Unit]
+Description=ROS2 Node Manager - Web UI for monitoring ROS2 nodes
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/ros2-monitor
+
+# Environment
+Environment="PATH=/opt/ros2-monitor/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Start command
+ExecStart=/opt/ros2-monitor/.venv/bin/python -m uvicorn server.main:app --host 0.0.0.0 --port 8080
+
+# Restart policy
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ros2-monitor
+
+# Security (optional)
+# NoNewPrivileges=true
+# ProtectSystem=strict
+# ProtectHome=true
+# ReadWritePaths=/opt/ros2-monitor/data
+
+[Install]
+WantedBy=multi-user.target

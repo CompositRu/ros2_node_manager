@@ -18,6 +18,7 @@ from .state import StatePersister
 from .routers import servers_router, nodes_router, websocket_router
 from .config import settings, load_servers_config, get_server_by_id, load_alert_config
 from .services import NodeService, AlertService
+from fastapi.responses import FileResponse, JSONResponse
 
 
 @dataclass
@@ -190,6 +191,56 @@ async def health():
         "connected": app_state.connection is not None and app_state.connection.connected,
         "server": app_state.current_server_id
     }
+
+
+# === Static files and SPA routing (Production) ===
+
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
+
+# Path to React build
+STATIC_DIR = Path(__file__).parent.parent / "web" / "dist"
+ASSETS_DIR = STATIC_DIR / "assets"
+
+
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint."""
+    return {
+        "status": "ok",
+        "connected": app_state.connection is not None and app_state.connection._connected,
+        "server": app_state.current_server_id,
+    }
+
+
+# Serve static assets if build exists
+if ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=str(ASSETS_DIR)), name="assets")
+
+
+@app.get("/{full_path:path}")
+async def serve_spa(request: Request, full_path: str):
+    """Serve React SPA for all non-API routes."""
+    # Don't serve SPA for API routes
+    if full_path.startswith("api/") or full_path.startswith("ws/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    
+    # Check if static build exists
+    index_file = STATIC_DIR / "index.html"
+    if not index_file.exists():
+        return JSONResponse(
+            status_code=200,
+            content={"message": "ROS2 Node Manager API", "docs": "/docs", "mode": "development"}
+        )
+    
+    # Try to serve the exact file first
+    file_path = STATIC_DIR / full_path
+    if file_path.is_file():
+        return FileResponse(file_path)
+    
+    # Otherwise serve index.html (SPA routing)
+    return FileResponse(index_file)
 
 
 if __name__ == "__main__":
