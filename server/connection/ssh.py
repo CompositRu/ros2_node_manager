@@ -108,17 +108,12 @@ class SSHDockerConnection(BaseConnection):
         if not self._connected or not self._conn:
             raise ConnectionError("Not connected")
 
-        full_cmd = self._build_docker_cmd(cmd)
-        
-        # Используем stdbuf для отключения буферизации
-        # или python -u для unbuffered output
-        unbuffered_cmd = f"stdbuf -oL -eL {full_cmd}"
-        
+        # Use _build_docker_cmd_stream which runs `script` INSIDE the container
+        # for unbuffered output (same approach as LocalDockerConnection)
+        full_cmd = self._build_docker_cmd_stream(cmd)
+
         try:
-            async with self._conn.create_process(
-                unbuffered_cmd,
-                term_type='xterm',  # Запрашиваем PTY для unbuffered output
-            ) as proc:
+            async with self._conn.create_process(full_cmd) as proc:
                 async for line in proc.stdout:
                     stripped = line.rstrip('\n\r')
                     if stripped:

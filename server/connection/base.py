@@ -46,18 +46,31 @@ class BaseConnection(ABC):
         """Execute command and stream output line by line."""
         pass
     
-    def _build_docker_cmd(self, cmd: str) -> str:
-        """Build full docker exec command with ROS setup."""
-        escaped_cmd = cmd.replace("'", "'\"'\"'")
-        # Читаем ROS_DOMAIN_ID из файла, устанавливаем ROS окружение
-        ros_env = (
+    def _ros_env(self) -> str:
+        """Build ROS environment setup commands."""
+        return (
             'ROS_DOMAIN_ID=$(cat $HOME/tram.autoware/.ros_domain_id 2>/dev/null || echo 0) && '
             'export ROS_DOMAIN_ID && '
             'export ROS_LOCALHOST_ONLY=1 && '
-            'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp'
+            'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && '
+            'if [ -z "$CYCLONEDDS_URI" ]; then '
+            'export CYCLONEDDS_URI="<CycloneDDS><Domain><Discovery><MaxAutoParticipantIndex>200</MaxAutoParticipantIndex></Discovery></Domain></CycloneDDS>"; '
+            'fi'
         )
+
+    def _build_docker_cmd(self, cmd: str) -> str:
+        """Build full docker exec command with ROS setup."""
+        escaped_cmd = cmd.replace("'", "'\"'\"'")
+        ros_env = self._ros_env()
         return f"docker exec {self.container} bash -c '{ros_env} && source {self.ros_setup} && {escaped_cmd}'"
-    
+
+    def _build_docker_cmd_stream(self, cmd: str) -> str:
+        """Build docker exec command for streaming (with unbuffered output)."""
+        escaped_cmd = cmd.replace("'", "'\"'\"'")
+        ros_env = self._ros_env()
+        # PYTHONUNBUFFERED=1 forces unbuffered output for Python-based ROS2 CLI tools
+        return f"docker exec {self.container} bash -c 'export PYTHONUNBUFFERED=1 && {ros_env} && source {self.ros_setup} && {escaped_cmd}'"
+
     # === ROS2 CLI wrappers ===
     
     async def ros2_node_list(self) -> list[str]:
@@ -106,7 +119,9 @@ class BaseConnection(ABC):
             return data
             
         except Exception as e:
+            import traceback
             print(f"Error getting params for {node_name}: {e}")
+            traceback.print_exc()
             return {}
     
     async def ros2_service_list(self) -> list[str]:

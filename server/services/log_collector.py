@@ -200,7 +200,11 @@ async def stream_node_logs(
     level_map = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
     
     try:
+        line_count = 0
         async for line in connection.exec_stream(cmd):
+            line_count += 1
+            if line_count <= 3:
+                print(f"DEBUG stream_node_logs: line {line_count}: {line[:100]}")
             buffer.append(line)
             
             # Check for message boundary
@@ -233,4 +237,6 @@ async def stream_node_logs(
                 except Exception:
                     pass
     except Exception as e:
-        print(f"Log stream error: {e}")
+        import traceback
+        print(f"Log stream error for {node_name}: {e}")
+        traceback.print_exc()

@@ -93,19 +93,14 @@ class LocalDockerConnection(BaseConnection):
         except Exception as e:
             print(f"exec_stream error: {e}")
         finally:
-            proc.terminate()
             try:
+                proc.terminate()
                 await asyncio.wait_for(proc.wait(), timeout=2.0)
-            except:
-                proc.kill()
+            except ProcessLookupError:
+                pass  # Process already exited
+            except Exception:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
 
-    def _build_docker_cmd_stream(self, cmd: str) -> str:
-        """Build docker exec command for streaming (with pseudo-TTY)."""
-        escaped_cmd = cmd.replace("'", "'\"'\"'")
-        ros_env = (
-            'ROS_DOMAIN_ID=$(cat $HOME/tram.autoware/.ros_domain_id 2>/dev/null || echo 0) && '
-            'export ROS_DOMAIN_ID && '
-            'export ROS_LOCALHOST_ONLY=1 && '
-            'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp'
-        )
-        return f"docker exec {self.container} script -q -c \"bash -c '{ros_env} && source {self.ros_setup} && {escaped_cmd}'\" /dev/null"
