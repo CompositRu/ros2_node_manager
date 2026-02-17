@@ -17,7 +17,7 @@ set -e
 # === Configuration ===
 REMOTE_HOST="${1:?Usage: $0 <host> [user] [--background]}"
 REMOTE_USER="${2:-ubuntu}"
-REMOTE_DIR="/opt/ros2-monitor"
+REMOTE_DIR="\$HOME/ros2-monitor"
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
 BACKGROUND=""
 

@@ -15,7 +15,7 @@ set -e
 # === Configuration ===
 REMOTE_HOST="${1:?Usage: $0 <host> [user]}"
 REMOTE_USER="${2:-ubuntu}"
-REMOTE_DIR="/opt/ros2-monitor"
+REMOTE_DIR="~/ros2-monitor"
 SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
 
 # Colors
@@ -65,7 +65,7 @@ log_info "Frontend build complete"
 # === Step 2: Create remote directory ===
 
 log_info "Creating remote directory..."
-ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "sudo mkdir -p ${REMOTE_DIR} && sudo chown ${REMOTE_USER}:${REMOTE_USER} ${REMOTE_DIR}"
+ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "mkdir -p ${REMOTE_DIR} && chown ${REMOTE_USER}:${REMOTE_USER} ${REMOTE_DIR}"
 
 # === Step 3: Sync files ===
 
@@ -92,9 +92,9 @@ log_info "Files synced"
 # === Step 4: Setup Python environment ===
 
 log_info "Setting up Python virtual environment..."
-ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" << 'REMOTE_SCRIPT'
+ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" << REMOTE_SCRIPT
 set -e
-cd /opt/ros2-monitor
+cd ${REMOTE_DIR}
 
 # Create venv if not exists
 if [ ! -d ".venv" ]; then
