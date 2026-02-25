@@ -4,6 +4,7 @@ import asyncio
 from typing import AsyncIterator
 
 from .base import BaseConnection, ConnectionError, ContainerNotFoundError
+from ..services.metrics import metrics
 
 
 class LocalDockerConnection(BaseConnection):
@@ -39,65 +40,69 @@ class LocalDockerConnection(BaseConnection):
         """Execute command in local Docker container."""
         if not self._connected:
             raise ConnectionError("Not connected")
-        
+
         full_cmd = self._build_docker_cmd(cmd)
-        
+        metrics.subprocess_started()
+
         try:
             proc = await asyncio.create_subprocess_shell(
                 full_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            
+
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(),
                 timeout=timeout
             )
-            
+
             if proc.returncode != 0:
                 error_msg = stderr.decode().strip() or f"Command failed with code {proc.returncode}"
                 if "No such container" in error_msg:
                     self._connected = False
                     raise ContainerNotFoundError(f"Container '{self.container}' not found or stopped")
                 raise ConnectionError(error_msg)
-            
+
             return stdout.decode()
-            
+
         except asyncio.TimeoutError:
             raise ConnectionError(f"Command timed out after {timeout}s")
         except Exception as e:
             raise ConnectionError(f"Command execution failed: {e}")
+        finally:
+            metrics.subprocess_finished()
     
     async def exec_stream(self, cmd: str) -> AsyncIterator[str]:
         """Execute command and stream output line by line."""
         if not self._connected:
             raise ConnectionError("Not connected")
-        
-        # Используем -t для pseudo-TTY (меньше буферизации)
+
         full_cmd = self._build_docker_cmd_stream(cmd)
-        
+
         proc = await asyncio.create_subprocess_shell(
             full_cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,  # Merge stderr to stdout
+            stderr=asyncio.subprocess.STDOUT,
         )
-        
+        metrics.stream_started()
+
         try:
             while True:
                 line = await proc.stdout.readline()
                 if not line:
                     break
                 decoded = line.decode().rstrip('\n\r')
-                if decoded:  # Skip empty lines
+                if decoded:
                     yield decoded
         except Exception as e:
             print(f"exec_stream error: {e}")
         finally:
+            metrics.stream_finished()
             try:
                 proc.terminate()
                 await asyncio.wait_for(proc.wait(), timeout=2.0)
             except ProcessLookupError:
-                pass  # Process already exited
+                pass
             except Exception:
                 try:
                     proc.kill()

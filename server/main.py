@@ -15,7 +15,7 @@ from .models import ServerConfig, ServerType
 from .connection import BaseConnection, LocalDockerConnection, SSHDockerConnection, ConnectionError, ContainerNotFoundError
 from .state import StatePersister
 # from .services import NodeServicee
-from .routers import servers_router, nodes_router, websocket_router
+from .routers import servers_router, nodes_router, websocket_router, debug_router
 from .config import settings, load_servers_config, get_server_by_id, load_alert_config
 from .services import NodeService, AlertService
 from fastapi.responses import FileResponse, JSONResponse
@@ -165,6 +165,7 @@ app.add_middleware(
 app.include_router(servers_router)
 app.include_router(nodes_router)
 app.include_router(websocket_router)
+app.include_router(debug_router)
 
 
 # Serve static files (React build)

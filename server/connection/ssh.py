@@ -6,6 +6,7 @@ from typing import AsyncIterator, Optional
 import asyncssh
 
 from .base import BaseConnection, ConnectionError, ContainerNotFoundError
+from ..services.metrics import metrics
 
 
 class SSHDockerConnection(BaseConnection):
@@ -80,37 +81,39 @@ class SSHDockerConnection(BaseConnection):
         """Execute command in Docker container on remote server."""
         if not self._connected or not self._conn:
             raise ConnectionError("Not connected")
-        
+
         full_cmd = self._build_docker_cmd(cmd)
-        
+        metrics.subprocess_started()
+
         try:
             result = await asyncio.wait_for(
                 self._conn.run(full_cmd),
                 timeout=timeout
             )
-            
+
             if result.exit_status != 0:
                 error_msg = result.stderr.strip() or f"Command failed with code {result.exit_status}"
                 if "No such container" in error_msg:
                     self._connected = False
                     raise ContainerNotFoundError(f"Container '{self.container}' not found or stopped")
                 raise ConnectionError(error_msg)
-            
+
             return result.stdout
-            
+
         except asyncio.TimeoutError:
             raise ConnectionError(f"Command timed out after {timeout}s")
         except asyncssh.Error as e:
             raise ConnectionError(f"SSH command failed: {e}")
+        finally:
+            metrics.subprocess_finished()
     
     async def exec_stream(self, cmd: str) -> AsyncIterator[str]:
         """Execute command and stream output via SSH."""
         if not self._connected or not self._conn:
             raise ConnectionError("Not connected")
 
-        # Use _build_docker_cmd_stream which runs `script` INSIDE the container
-        # for unbuffered output (same approach as LocalDockerConnection)
         full_cmd = self._build_docker_cmd_stream(cmd)
+        metrics.stream_started()
 
         try:
             async with self._conn.create_process(full_cmd) as proc:
@@ -122,3 +125,5 @@ class SSHDockerConnection(BaseConnection):
             print(f"SSH exec_stream error: {e}")
         except Exception as e:
             print(f"exec_stream error: {e}")
+        finally:
+            metrics.stream_finished()
