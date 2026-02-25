@@ -11,6 +11,7 @@ import { ToastContainer } from './components/ToastContainer';
 import { ActivityBar } from './components/ActivityBar';
 import { AppStats } from './components/AppStats';
 import { UnifiedLogs } from './components/UnifiedLogs';
+import { Diagnostics } from './components/Diagnostics';
 
 // Min/max constraints
 const MIN_TREE_WIDTH = 200;
@@ -36,7 +37,7 @@ function App() {
     wasConnected.current = server.connected;
   }, [server.connected, nodes.refresh]);
 
-  const [activeSection, setActiveSection] = useState('nodes');
+  const [activeSection, setActiveSection] = useState('diagnostics');
   const [selectedNode, setSelectedNode] = useState(null);
   const [logNode, setLogNode] = useState(null);
 
@@ -183,6 +184,13 @@ function App() {
               )}
             </div>
           </>
+        )}
+
+        {/* Diagnostics Section */}
+        {activeSection === 'diagnostics' && (
+          <div className="flex-1 overflow-hidden">
+            <Diagnostics connected={server.connected} />
+          </div>
         )}
 
         {/* Logs Section */}

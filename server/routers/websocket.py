@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import NodeStatus
-from ..services import stream_node_logs, stream_all_logs
+from ..services import stream_node_logs, stream_all_logs, stream_diagnostics
 from ..services.metrics import metrics
 from ..connection import ContainerNotFoundError
 
@@ -77,6 +77,57 @@ async def nodes_status_websocket(websocket: WebSocket):
         print(f"WebSocket error: {e}")
     finally:
         metrics.ws_disconnect("status")
+
+
+@router.websocket("/ws/diagnostics")
+async def diagnostics_websocket(websocket: WebSocket):
+    """WebSocket for streaming /diagnostics topic data."""
+    from ..main import app_state
+
+    await websocket.accept()
+    metrics.ws_connect("diagnostic")
+
+    if not app_state.connection or not app_state.connection.connected:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Not connected to server"
+        })
+        await websocket.close()
+        metrics.ws_disconnect("diagnostic")
+        return
+
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "message": "Streaming diagnostics"
+        })
+
+        async for diag_items in stream_diagnostics(app_state.connection):
+            await websocket.send_json({
+                "type": "diagnostics",
+                "items": [
+                    {
+                        "name": item.name,
+                        "level": item.level,
+                        "message": item.message,
+                        "hardware_id": item.hardware_id,
+                        "values": item.values,
+                        "timestamp": item.timestamp.isoformat(),
+                    }
+                    for item in diag_items
+                ],
+            })
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"Diagnostics WebSocket error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        metrics.ws_disconnect("diagnostic")
 
 
 @router.websocket("/ws/logs/all")

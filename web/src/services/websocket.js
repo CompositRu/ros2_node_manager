@@ -108,3 +108,42 @@ export function createUnifiedLogsSocket(onMessage, onError, onConnected) {
 
   return ws;
 }
+
+export function createDiagnosticsSocket(onMessage, onError, onConnected) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  const url = `${protocol}//${host}/ws/diagnostics`;
+
+  const ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    console.log('Diagnostics WebSocket connected');
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'connected' && onConnected) {
+        onConnected(data.message);
+      } else if (data.type === 'diagnostics') {
+        onMessage(data);
+      } else if (data.type === 'error' && onError) {
+        onError(data.message);
+      }
+    } catch (e) {
+      console.error('Failed to parse diagnostics message:', e);
+    }
+  };
+
+  ws.onerror = (error) => {
+    console.error('Diagnostics WebSocket error:', error);
+    if (onError) onError(error.message || 'WebSocket error');
+  };
+
+  ws.onclose = () => {
+    console.log('Diagnostics WebSocket closed');
+  };
+
+  return ws;
+}

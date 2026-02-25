@@ -137,6 +137,16 @@ class WSLogMessage(BaseModel):
     message: str
 
 
+class DiagnosticItem(BaseModel):
+    """Single diagnostic status entry from /diagnostics topic."""
+    name: str
+    level: int  # 0=OK, 1=WARN, 2=ERROR, 3=STALE
+    message: str
+    hardware_id: str = ""
+    values: list[dict] = Field(default_factory=list)  # [{key, value}, ...]
+    timestamp: datetime = Field(default_factory=datetime.now)
+
+
 
 # === Alert Models ===
 
