@@ -68,10 +68,28 @@ function App() {
           <h1 className="text-xl font-bold text-blue-400">ROS2 Node Manager</h1>
 
           {server.connected && server.currentServer && (
-            <span className="text-green-400 text-sm">● Connected to {server.currentServer.name}</span>
+            <>
+              <span className="text-green-400 text-sm">● {server.currentServer.name}</span>
+              <button
+                onClick={server.disconnect}
+                disabled={server.loading}
+                className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded disabled:opacity-50"
+              >
+                Disconnect
+              </button>
+            </>
           )}
           {!server.connected && !server.loading && (
-            <span className="text-red-400 text-sm">● Not connected</span>
+            <>
+              <span className="text-red-400 text-sm">● Not connected</span>
+              <button
+                onClick={() => server.servers[0] && server.connect(server.servers[0].id)}
+                disabled={!server.servers.length}
+                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded disabled:opacity-50"
+              >
+                Connect
+              </button>
+            </>
           )}
           {server.loading && (
             <span className="text-yellow-400 text-sm">● Connecting...</span>

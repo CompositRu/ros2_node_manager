@@ -113,31 +113,61 @@ async def disconnect_server() -> None:
     print("🔌 Disconnected from server")
 
 
+async def _auto_connect_loop():
+    """Background task: retry connecting to first server until success."""
+    import asyncio
+
+    servers = load_servers_config()
+    if not servers:
+        return
+
+    first_server = servers[0]
+    retry_interval = 5  # seconds
+
+    while not app_state.is_shutting_down:
+        if app_state.connection and app_state.connection.connected:
+            return  # already connected, done
+        try:
+            await connect_to_server(first_server)
+            print(f"✅ Auto-connected to '{first_server.name}'")
+            return
+        except Exception as e:
+            print(f"⚠️  Auto-connect to '{first_server.name}' failed: {e} (retrying in {retry_interval}s)")
+            await asyncio.sleep(retry_interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
+    import asyncio
+
     # Startup
     print("🚀 ROS2 Node Manager starting...")
-    
+
     # Ensure data directory exists
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Auto-connect to first server if available
     servers = load_servers_config()
+    auto_connect_task = None
     if servers:
         first_server = servers[0]
         print(f"📡 Auto-connecting to '{first_server.name}'...")
         try:
             await connect_to_server(first_server)
             print(f"✅ Connected to '{first_server.name}'")
-        except ConnectionError as e:
+        except Exception as e:
             print(f"⚠️  Could not auto-connect: {e}")
-    
+            print("🔄 Will retry in background...")
+            auto_connect_task = asyncio.create_task(_auto_connect_loop())
+
     yield
 
     # Shutdown
     print("👋 Shutting down...")
     app_state.is_shutting_down = True
+    if auto_connect_task and not auto_connect_task.done():
+        auto_connect_task.cancel()
     if app_state.alert_service:
         await app_state.alert_service.stop()
     if app_state.connection:

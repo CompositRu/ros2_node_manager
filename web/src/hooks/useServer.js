@@ -34,15 +34,37 @@ export function useServer() {
     }
   }, []);
   
-  // Initial fetch
+  // Initial fetch + auto-connect if not connected
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      await Promise.all([fetchServers(), fetchCurrentServer()]);
-      setLoading(false);
+      const [serversList, current] = await Promise.all([
+        api.getServers().catch(() => []),
+        api.getCurrentServer().catch(() => ({ connected: false, server: null })),
+      ]);
+      setServers(serversList);
+
+      if (current.connected) {
+        setConnected(true);
+        setCurrentServer(current.server);
+        setLoading(false);
+      } else if (serversList.length > 0) {
+        // Auto-connect to first server
+        try {
+          const result = await api.connectToServer(serversList[0].id);
+          setConnected(true);
+          setCurrentServer(result.server);
+        } catch (err) {
+          console.warn('Auto-connect failed:', err.message);
+          setConnected(false);
+        }
+        setLoading(false);
+      } else {
+        setLoading(false);
+      }
     };
     init();
-  }, [fetchServers, fetchCurrentServer]);
+  }, []);
   
   // Connect to server
   const connect = useCallback(async (serverId, password = null) => {
