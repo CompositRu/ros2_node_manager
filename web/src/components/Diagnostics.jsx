@@ -162,6 +162,156 @@ function BagRecorderCard({ item, onClick }) {
   );
 }
 
+// --------------- System Widgets (CPU / GPU / RAM) ---------------
+
+function GaugeRing({ value, size = 56, strokeWidth = 4.5 }) {
+  const r = (size - strokeWidth) / 2;
+  const c = 2 * Math.PI * r;
+  const pct = value != null ? Math.min(Math.max(value, 0), 100) / 100 : 0;
+  const color = value == null ? '#4b5563'
+    : value >= 90 ? '#ef4444'
+    : value >= 75 ? '#f59e0b'
+    : '#22c55e';
+
+  return (
+    <div className="relative flex-shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={size / 2} cy={size / 2} r={r}
+          fill="none" stroke="#374151" strokeWidth={strokeWidth} />
+        {value != null && (
+          <circle cx={size / 2} cy={size / 2} r={r}
+            fill="none" stroke={color} strokeWidth={strokeWidth}
+            strokeDasharray={c} strokeDashoffset={c * (1 - pct)}
+            strokeLinecap="round"
+            style={{ transition: 'stroke-dashoffset 0.7s ease' }} />
+        )}
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <span className="text-[11px] font-bold text-white leading-none">
+          {value != null ? Math.round(value) : '—'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function tempClass(t) {
+  if (t == null) return 'text-gray-400';
+  if (t >= 85) return 'text-red-400';
+  if (t >= 70) return 'text-yellow-400';
+  return 'text-green-400';
+}
+
+function SystemWidgets({ diagnostics }) {
+  const m = useMemo(() => {
+    const all = Object.values(diagnostics);
+    if (!all.length) return null;
+
+    const find = (...kws) =>
+      all.find(i => kws.every(k => i.name.toLowerCase().includes(k)));
+    const val = (item, test) =>
+      item?.values?.find(v => test(v.key))?.value ?? null;
+    const num = v => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+
+    // CPU
+    const cpuU = find('cpu', 'usage');
+    const cpuT = find('cpu', 'temperature');
+    const cpuL = find('cpu', 'load');
+
+    const cpuUsage = num(val(cpuU, k => /all.*total/i.test(k)));
+
+    let cpuTemp = null;
+    for (const { key, value } of cpuT?.values ?? []) {
+      if (/status/i.test(key)) continue;
+      const t = num(String(value).match(/([\d.]+)/)?.[1]);
+      if (t != null && (cpuTemp == null || t > cpuTemp)) cpuTemp = t;
+    }
+    const cpuLoad = val(cpuL, k => /1min/i.test(k));
+
+    // GPU
+    const gpuU = all.find(i => {
+      const n = i.name.toLowerCase();
+      return n.includes('gpu') && n.includes('usage') && !n.includes('memory');
+    });
+    const gpuM = find('gpu', 'memory');
+    const gpuT = find('gpu', 'temperature');
+
+    const gpuUsage = num(val(gpuU, k => /usage/i.test(k) && !/status/i.test(k)));
+    const gpuMem = num(val(gpuM, k => /usage/i.test(k) && !/status/i.test(k)));
+    let gpuTemp = null;
+    for (const { key, value } of gpuT?.values ?? []) {
+      if (/status/i.test(key)) continue;
+      const t = num(String(value).match(/([\d.]+)/)?.[1]);
+      if (t != null && (gpuTemp == null || t > gpuTemp)) gpuTemp = t;
+    }
+
+    // Memory
+    const memI = all.find(i => {
+      const n = i.name.toLowerCase();
+      return n.includes('mem') && n.includes('usage') && !n.includes('gpu');
+    });
+    const memUsage = num(val(memI, k => /^mem:\s*usage$/i.test(k)));
+    const memUsed = val(memI, k => /^mem:\s*used$/i.test(k));
+    const memTotal = val(memI, k => /^mem:\s*total$/i.test(k));
+    const memAvail = val(memI, k => /^mem:\s*available$/i.test(k));
+
+    if (!cpuU && !cpuT && !gpuU && !gpuM && !gpuT && !memI) return null;
+
+    return {
+      cpu: { usage: cpuUsage, temp: cpuTemp, load: cpuLoad },
+      gpu: { usage: gpuUsage, mem: gpuMem, temp: gpuTemp },
+      mem: { usage: memUsage, used: memUsed, total: memTotal, available: memAvail },
+    };
+  }, [diagnostics]);
+
+  if (!m) return null;
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+      {/* CPU */}
+      <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 px-3 py-2.5 flex items-center gap-3">
+        <GaugeRing value={m.cpu.usage} />
+        <div className="min-w-0">
+          <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">CPU</div>
+          {m.cpu.temp != null && (
+            <div className={`text-xs ${tempClass(m.cpu.temp)}`}>{Math.round(m.cpu.temp)}°C</div>
+          )}
+          {m.cpu.load != null && (
+            <div className="text-xs text-gray-400">Load {m.cpu.load}</div>
+          )}
+        </div>
+      </div>
+
+      {/* GPU */}
+      <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 px-3 py-2.5 flex items-center gap-3">
+        <GaugeRing value={m.gpu.usage} />
+        <div className="min-w-0">
+          <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">GPU</div>
+          {m.gpu.temp != null && (
+            <div className={`text-xs ${tempClass(m.gpu.temp)}`}>{Math.round(m.gpu.temp)}°C</div>
+          )}
+          {m.gpu.mem != null && (
+            <div className="text-xs text-gray-400">VRAM {Math.round(m.gpu.mem)}%</div>
+          )}
+        </div>
+      </div>
+
+      {/* Memory */}
+      <div className="bg-gray-800/60 rounded-lg border border-gray-700/50 px-3 py-2.5 flex items-center gap-3">
+        <GaugeRing value={m.mem.usage} />
+        <div className="min-w-0">
+          <div className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">RAM</div>
+          {m.mem.used && m.mem.total ? (
+            <div className="text-xs text-gray-400">{m.mem.used} / {m.mem.total}</div>
+          ) : m.mem.available ? (
+            <div className="text-xs text-gray-400">Free {m.mem.available}</div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DetailView({ item, onBack }) {
   const levelLabel = LEVEL_LABELS[item.level] ?? 'UNKNOWN';
 
@@ -282,12 +432,16 @@ export function Diagnostics({ connected }) {
     return Object.values(diagnostics);
   }, [diagnostics]);
 
-  const filtered = useMemo(() => {
-    return diagList.filter((item) => {
-      if (levelFilter !== 'All' && LEVEL_LABELS[item.level] !== levelFilter) return false;
-      if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
+  const { localization, rest } = useMemo(() => {
+    const loc = [];
+    const other = [];
+    for (const item of diagList) {
+      if (levelFilter !== 'All' && LEVEL_LABELS[item.level] !== levelFilter) continue;
+      if (search && !item.name.toLowerCase().includes(search.toLowerCase())) continue;
+      if (isLocalizationItem(item.name)) loc.push(item);
+      else other.push(item);
+    }
+    return { localization: loc, rest: other };
   }, [diagList, levelFilter, search]);
 
   // Counts by level
@@ -364,7 +518,22 @@ export function Diagnostics({ connected }) {
 
       {/* Card Grid */}
       <div className="flex-1 overflow-auto p-4">
-        {filtered.length === 0 ? (
+        <SystemWidgets diagnostics={diagnostics} />
+
+        {/* Localization cards — always pinned below widgets */}
+        {localization.length > 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 mb-4">
+            {localization.map((item) => (
+              <LocalizationCard
+                key={item.name}
+                item={item}
+                onClick={() => setSelectedName(item.name)}
+              />
+            ))}
+          </div>
+        )}
+
+        {rest.length === 0 && localization.length === 0 ? (
           <div className="text-gray-500 text-center py-8">
             {diagStatus === 'connecting'
               ? 'Connecting to diagnostics stream...'
@@ -376,17 +545,11 @@ export function Diagnostics({ connected }) {
                     ? 'No diagnostics match the current filter'
                     : 'No diagnostics yet'}
           </div>
-        ) : (
+        ) : rest.length > 0 && (
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-            {filtered.map((item) =>
+            {rest.map((item) =>
               isBagRecorderItem(item.name) ? (
                 <BagRecorderCard
-                  key={item.name}
-                  item={item}
-                  onClick={() => setSelectedName(item.name)}
-                />
-              ) : isLocalizationItem(item.name) ? (
-                <LocalizationCard
                   key={item.name}
                   item={item}
                   onClick={() => setSelectedName(item.name)}
