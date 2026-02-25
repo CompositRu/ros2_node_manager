@@ -1,7 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useServer } from './hooks/useServer';
 import { useNodes } from './hooks/useNodes';
-import { ServerSelector } from './components/ServerSelector';
 import { StatusBar } from './components/StatusBar';
 import { NodeTree } from './components/NodeTree';
 import { NodeDetailPanel } from './components/NodeDetailPanel';
@@ -66,14 +65,16 @@ function App() {
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold text-blue-400">🚊 ROS2 Node Manager</h1>
           
-          <ServerSelector
-            servers={server.servers}
-            currentServer={server.currentServer}
-            connected={server.connected}
-            onConnect={server.connect}
-            onDisconnect={server.disconnect}
-            loading={server.loading}
-          />
+          {/* Connection status indicator (server selector hidden - always local connection) */}
+          {server.connected && server.currentServer && (
+            <span className="text-green-400 text-sm">● Connected to {server.currentServer.name}</span>
+          )}
+          {!server.connected && !server.loading && (
+            <span className="text-red-400 text-sm">● Not connected</span>
+          )}
+          {server.loading && (
+            <span className="text-yellow-400 text-sm">● Connecting...</span>
+          )}
         </div>
         
         <div className="flex items-center gap-4">

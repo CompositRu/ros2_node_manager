@@ -53,6 +53,11 @@ export async function getNodeDetail(nodeName, refresh = true) {
   return request(`/nodes/${path}?refresh=${refresh}`);
 }
 
+export async function getNodeParams(nodeName) {
+  const path = nodeName.startsWith('/') ? nodeName.slice(1) : nodeName;
+  return request(`/nodes/${path}/params`);
+}
+
 export async function shutdownNode(nodeName, force = false) {
   const path = nodeName.startsWith('/') ? nodeName.slice(1) : nodeName;
   return request(`/nodes/${path}/shutdown`, {

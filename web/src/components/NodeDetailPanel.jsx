@@ -16,6 +16,8 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
   const [actionResult, setActionResult] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [cache, setCache] = useState({});
+  const [params, setParams] = useState(null);
+  const [paramsLoading, setParamsLoading] = useState(false);
 
   useEffect(() => {
     if (!nodeName) {
@@ -66,7 +68,8 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
     };
 
     setActionResult(null);
-    
+    setParams(null);
+
     if (!cached) {
       fetchCached().then(() => fetchFresh());
     } else {
@@ -91,6 +94,19 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadParams = async () => {
+    if (!nodeName) return;
+    setParamsLoading(true);
+    try {
+      const data = await api.getNodeParams(nodeName);
+      setParams(data.parameters || {});
+    } catch (err) {
+      console.error('Error loading params:', err);
+    } finally {
+      setParamsLoading(false);
     }
   };
 
@@ -322,19 +338,30 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
           {/* Content */}
           <div className="flex-1 overflow-auto p-4 space-y-4">
             <Section title="Parameters" defaultOpen={true}>
-              {Object.keys(node.parameters || {}).length > 0 ? (
+              {params && Object.keys(params).length > 0 ? (
                 <div className="space-y-1 text-sm font-mono max-h-64 overflow-auto">
-                  {Object.entries(node.parameters).map(([key, value]) => (
+                  {Object.entries(params).map(([key, value]) => (
                     <div key={key} className="flex">
                       <span className="text-blue-300 mr-2">{key}:</span>
                       <span className="text-gray-300">{formatValue(value)}</span>
                     </div>
                   ))}
+                  <button
+                    onClick={loadParams}
+                    disabled={paramsLoading}
+                    className="mt-2 px-2 py-1 bg-gray-600 hover:bg-gray-700 text-gray-300 text-xs rounded disabled:opacity-50 flex items-center gap-1"
+                  >
+                    {paramsLoading ? <Spinner /> : '↻'} Refresh
+                  </button>
                 </div>
               ) : (
-                <span className="text-gray-500 text-sm flex items-center gap-2">
-                  {loading ? <><Spinner /> Loading...</> : 'No parameters'}
-                </span>
+                <button
+                  onClick={loadParams}
+                  disabled={paramsLoading}
+                  className="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm rounded disabled:opacity-50 flex items-center gap-1"
+                >
+                  {paramsLoading ? <><Spinner /> Loading...</> : 'Load Parameters'}
+                </button>
               )}
             </Section>
 

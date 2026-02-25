@@ -30,6 +30,21 @@ async def list_nodes(refresh: bool = Query(True, description="Refresh from ROS2"
         return service.get_cached_nodes()
 
 
+@router.get("/{node_name:path}/params")
+async def get_node_params(node_name: str):
+    """Fetch parameters for a node on demand."""
+    service = get_node_service()
+
+    if not node_name.startswith("/"):
+        node_name = "/" + node_name
+
+    params = await service.get_node_params(node_name)
+    if params is None:
+        raise HTTPException(404, f"Node '{node_name}' not found")
+
+    return {"parameters": params}
+
+
 @router.get("/{node_name:path}", response_model=NodeDetailResponse)
 async def get_node_detail(node_name: str, refresh: bool = Query(True, description="Fetch fresh data from ROS2")):
     """
@@ -38,15 +53,15 @@ async def get_node_detail(node_name: str, refresh: bool = Query(True, descriptio
     - refresh=True: Fetch fresh data from ROS2 (slow)
     """
     service = get_node_service()
-    
+
     if not node_name.startswith("/"):
         node_name = "/" + node_name
-    
+
     result = await service.get_node_detail(node_name, refresh=refresh)
-    
+
     if not result:
         raise HTTPException(404, f"Node '{node_name}' not found")
-    
+
     return result
 
 
