@@ -127,29 +127,45 @@ class NodeService:
         # If node is active, fetch fresh info
         if node.status == NodeStatus.ACTIVE:
             try:
-                # Get node info (subscribers, publishers, services)
-                info = await self.conn.ros2_node_info(node_name)
-                node.subscribers = info.get("subscribers", [])
-                node.publishers = info.get("publishers", [])
-                node.services = info.get("services", [])
-                
-                # Get parameters
-                params = await self.conn.ros2_param_dump(node_name)
-                node.parameters = params
-                
-                # Check lifecycle state if lifecycle node
+                # Run node_info and param_dump concurrently to reduce total time
+                info_task = self.conn.ros2_node_info(node_name)
+                params_task = self.conn.ros2_param_dump(node_name)
+
+                tasks = [info_task, params_task]
                 if node.type == NodeType.LIFECYCLE:
-                    state = await self.conn.ros2_lifecycle_get_state(node_name)
-                    if state:
+                    tasks.append(self.conn.ros2_lifecycle_get_state(node_name))
+
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Process node info
+                info = results[0]
+                if not isinstance(info, Exception):
+                    node.subscribers = info.get("subscribers", [])
+                    node.publishers = info.get("publishers", [])
+                    node.services = info.get("services", [])
+                else:
+                    print(f"Error fetching node info for {node_name}: {info}")
+
+                # Process parameters (keep cached on failure)
+                params = results[1]
+                if not isinstance(params, Exception) and params:
+                    node.parameters = params
+                elif isinstance(params, Exception):
+                    print(f"Error fetching params for {node_name}: {params}, keeping cached")
+
+                # Process lifecycle state
+                if node.type == NodeType.LIFECYCLE and len(results) > 2:
+                    state = results[2]
+                    if not isinstance(state, Exception) and state:
                         node.lifecycle_state = LifecycleState(state)
-                
+
                 # Update last seen
                 node.last_seen = datetime.now()
-                
+
                 # Save
                 self.persister.update_node(node)
                 self.persister.save()
-                
+
             except Exception as e:
                 print(f"Error fetching node detail: {e}")
         
