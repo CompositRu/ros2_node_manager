@@ -31,7 +31,7 @@ export function NotificationProvider({ children }) {
 
   // Add notification
   const addNotification = useCallback((notification) => {
-    const id = crypto.randomUUID();
+    const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
     const timestamp = Date.now();
     
     const newNotification = {
