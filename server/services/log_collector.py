@@ -128,8 +128,12 @@ class LogCollector:
             name_match = re.search(r"name:\s*['\"]?([^'\"}\n]+)['\"]?", text)
             
             # msg
-            msg_match = re.search(r"msg:\s*['\"]?([^'\"}\n]*)['\"]?", text)
-            
+            msg_match = (
+                re.search(r"msg:\s*'([^']*)'", text) or
+                re.search(r'msg:\s*"([^"]*)"', text) or
+                re.search(r"msg:\s*([^\n]+)", text)
+            )
+
             if not all([stamp_match, level_match, name_match, msg_match]):
                 return None
             
@@ -220,7 +224,11 @@ async def stream_node_logs(
                 try:
                     stamp_match = re.search(r"sec:\s*(\d+)", text)
                     level_match = re.search(r"level:\s*(\d+)", text)
-                    msg_match = re.search(r"msg:\s*['\"]?([^'\"}\n]*)['\"]?", text)
+                    msg_match = (
+                        re.search(r"msg:\s*'([^']*)'", text) or
+                        re.search(r'msg:\s*"([^"]*)"', text) or
+                        re.search(r"msg:\s*([^\n]+)", text)
+                    )
                     
                     if stamp_match and level_match and msg_match:
                         sec = int(stamp_match.group(1))
@@ -266,7 +274,11 @@ async def stream_all_logs(
                     stamp_match = re.search(r"sec:\s*(\d+)", text)
                     level_match = re.search(r"level:\s*(\d+)", text)
                     name_match = re.search(r"name:\s*['\"]?([^'\"}\n]+)['\"]?", text)
-                    msg_match = re.search(r"msg:\s*['\"]?([^'\"}\n]*)['\"]?", text)
+                    msg_match = (
+                        re.search(r"msg:\s*'([^']*)'", text) or
+                        re.search(r'msg:\s*"([^"]*)"', text) or
+                        re.search(r"msg:\s*([^\n]+)", text)
+                    )
 
                     if stamp_match and level_match and msg_match and name_match:
                         sec = int(stamp_match.group(1))

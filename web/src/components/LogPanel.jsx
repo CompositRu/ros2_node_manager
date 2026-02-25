@@ -168,7 +168,7 @@ export function LogPanel({ nodeName, onClose, height = 256 }) {
       </div>
       
       {/* Logs */}
-      <div className="flex-1 overflow-auto p-2 font-mono text-xs">
+      <div className="flex-1 overflow-auto p-2 font-mono text-xs select-text">
         {logs.length === 0 && (
           <div className="text-gray-500 text-center py-4">
             {status === 'connecting' ? 'Connecting...' : 

@@ -160,7 +160,7 @@ export function SystemMonitor({ connected }) {
         </div>
 
         {/* Log content */}
-        <div className="flex-1 overflow-auto p-2 font-mono text-xs">
+        <div className="flex-1 overflow-auto p-2 font-mono text-xs select-text">
           {filteredLogs.length === 0 && (
             <div className="text-gray-500 text-center py-8">
               {logsStatus === 'connecting' ? 'Connecting to log stream...' :
