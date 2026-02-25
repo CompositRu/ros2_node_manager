@@ -21,6 +21,7 @@ class Metrics:
     # WebSocket tracking
     _ws_status_connections: int = 0
     _ws_log_connections: int = 0
+    _ws_log_all_connections: int = 0
     _ws_alert_connections: int = 0
 
     def subprocess_started(self) -> None:
@@ -73,10 +74,12 @@ class Metrics:
                 "websockets": {
                     "status": self._ws_status_connections,
                     "log": self._ws_log_connections,
+                    "log_all": self._ws_log_all_connections,
                     "alert": self._ws_alert_connections,
                     "total": (
                         self._ws_status_connections
                         + self._ws_log_connections
+                        + self._ws_log_all_connections
                         + self._ws_alert_connections
                     ),
                 },

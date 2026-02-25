@@ -240,3 +240,50 @@ async def stream_node_logs(
         import traceback
         print(f"Log stream error for {node_name}: {e}")
         traceback.print_exc()
+
+
+async def stream_all_logs(
+    connection: BaseConnection,
+) -> AsyncIterator[LogMessage]:
+    """
+    Generator to stream ALL logs from /rosout (no node filtering).
+    Each LogMessage includes the originating node_name.
+    """
+    cmd = "ros2 topic echo /rosout --no-arr --qos-reliability best_effort --qos-history keep_last --qos-depth 1000"
+
+    buffer = []
+    level_map = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
+
+    try:
+        async for line in connection.exec_stream(cmd):
+            buffer.append(line)
+
+            if line.strip() == "---":
+                text = "\n".join(buffer)
+                buffer = []
+
+                try:
+                    stamp_match = re.search(r"sec:\s*(\d+)", text)
+                    level_match = re.search(r"level:\s*(\d+)", text)
+                    name_match = re.search(r"name:\s*['\"]?([^'\"}\n]+)['\"]?", text)
+                    msg_match = re.search(r"msg:\s*['\"]?([^'\"}\n]*)['\"]?", text)
+
+                    if stamp_match and level_match and msg_match and name_match:
+                        sec = int(stamp_match.group(1))
+                        timestamp = datetime.fromtimestamp(sec)
+                        level = level_map.get(int(level_match.group(1)), "INFO")
+                        node_name = name_match.group(1).strip()
+                        message = msg_match.group(1).strip()
+
+                        yield LogMessage(
+                            timestamp=timestamp,
+                            level=level,
+                            node_name=node_name,
+                            message=message,
+                        )
+                except Exception:
+                    pass
+    except Exception as e:
+        import traceback
+        print(f"All-logs stream error: {e}")
+        traceback.print_exc()

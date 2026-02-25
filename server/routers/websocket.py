@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import NodeStatus
-from ..services import stream_node_logs
+from ..services import stream_node_logs, stream_all_logs
 from ..services.metrics import metrics
 from ..connection import ContainerNotFoundError
 
@@ -77,6 +77,50 @@ async def nodes_status_websocket(websocket: WebSocket):
         print(f"WebSocket error: {e}")
     finally:
         metrics.ws_disconnect("status")
+
+
+@router.websocket("/ws/logs/all")
+async def all_logs_websocket(websocket: WebSocket):
+    """WebSocket for streaming ALL logs (unified stream)."""
+    from ..main import app_state
+
+    await websocket.accept()
+    metrics.ws_connect("log_all")
+
+    if not app_state.connection or not app_state.connection.connected:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Not connected to server"
+        })
+        await websocket.close()
+        metrics.ws_disconnect("log_all")
+        return
+
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "message": "Streaming all logs"
+        })
+
+        async for log_msg in stream_all_logs(app_state.connection):
+            await websocket.send_json({
+                "type": "log",
+                "timestamp": log_msg.timestamp.isoformat(),
+                "level": log_msg.level,
+                "node_name": log_msg.node_name,
+                "message": log_msg.message,
+            })
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"All-logs WebSocket error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        metrics.ws_disconnect("log_all")
 
 
 @router.websocket("/ws/logs/{node_name:path}")

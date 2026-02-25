@@ -66,6 +66,45 @@ export function createLogsSocket(nodeName, onMessage, onError, onConnected) {
   ws.onclose = () => {
     console.log(`Logs WebSocket closed for ${nodeName}`);
   };
-  
+
+  return ws;
+}
+
+export function createUnifiedLogsSocket(onMessage, onError, onConnected) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  const url = `${protocol}//${host}/ws/logs/all`;
+
+  const ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    console.log('Unified logs WebSocket connected');
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'connected' && onConnected) {
+        onConnected(data.message);
+      } else if (data.type === 'log') {
+        onMessage(data);
+      } else if (data.type === 'error' && onError) {
+        onError(data.message);
+      }
+    } catch (e) {
+      console.error('Failed to parse unified log message:', e);
+    }
+  };
+
+  ws.onerror = (error) => {
+    console.error('Unified logs WebSocket error:', error);
+    if (onError) onError(error.message || 'WebSocket error');
+  };
+
+  ws.onclose = () => {
+    console.log('Unified logs WebSocket closed');
+  };
+
   return ws;
 }

@@ -90,3 +90,9 @@ export async function groupAction(namespace, action, force = false) {
     body: JSON.stringify({ namespace, action, force }),
   });
 }
+
+// === System Stats ===
+
+export async function getStats() {
+  return request('/debug/stats');
+}
