@@ -41,7 +41,7 @@ if ! ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "test -d ${REMOTE_DIR}" 2>/
 fi
 
 if [ -n "$BACKGROUND" ]; then
-    ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "cd ${REMOTE_DIR} && ./deploy/start.sh --background"
+    ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "cd ${REMOTE_DIR} && ROS2_MONITOR_HOST=${REMOTE_HOST} ./deploy/start.sh --background"
     echo ""
     log_info "Useful commands:"
     log_info "  Logs:   ssh ${REMOTE_USER}@${REMOTE_HOST} 'tail -f ${REMOTE_DIR}/logs/ros2-monitor.log'"
@@ -50,5 +50,5 @@ if [ -n "$BACKGROUND" ]; then
 else
     log_info "Starting ros2-monitor (Ctrl+C to stop)..."
     echo ""
-    ssh ${SSH_OPTS} -t "${REMOTE_USER}@${REMOTE_HOST}" "cd ${REMOTE_DIR} && ./deploy/start.sh"
+    ssh ${SSH_OPTS} -t "${REMOTE_USER}@${REMOTE_HOST}" "cd ${REMOTE_DIR} && ROS2_MONITOR_HOST=${REMOTE_HOST} ./deploy/start.sh"
 fi

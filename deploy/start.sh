@@ -44,8 +44,8 @@ mkdir -p "$LOG_DIR"
 # Activate venv
 source .venv/bin/activate
 
-# Get host IP for display
-HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")
+# Get host IP for display (prefer ROS2_MONITOR_HOST if set, e.g. by start-remote.sh)
+HOST_IP="${ROS2_MONITOR_HOST:-$(hostname -I 2>/dev/null | awk '{print $1}' || echo "localhost")}"
 
 if [ "$1" == "--background" ] || [ "$1" == "-b" ]; then
     # Kill existing process by PID file
