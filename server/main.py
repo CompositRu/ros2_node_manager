@@ -29,6 +29,7 @@ class AppState:
     node_service: Optional[NodeService] = None
     persister: Optional[StatePersister] = None
     alert_service: Optional[AlertService] = None
+    is_shutting_down: bool = False
 
 
 # Global state
@@ -133,9 +134,10 @@ async def lifespan(app: FastAPI):
             print(f"⚠️  Could not auto-connect: {e}")
     
     yield
-    
+
     # Shutdown
     print("👋 Shutting down...")
+    app_state.is_shutting_down = True
     if app_state.alert_service:
         await app_state.alert_service.stop()
     if app_state.connection:

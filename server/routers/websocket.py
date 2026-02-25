@@ -23,7 +23,7 @@ async def nodes_status_websocket(websocket: WebSocket):
     await websocket.accept()
 
     try:
-        while True:
+        while not app_state.is_shutting_down:
             if app_state.node_service:
                 try:
                     # Refresh nodes
@@ -64,7 +64,10 @@ async def nodes_status_websocket(websocket: WebSocket):
                     "message": "Not connected to server"
                 })
 
-            await asyncio.sleep(5)
+            for _ in range(10):
+                if app_state.is_shutting_down:
+                    break
+                await asyncio.sleep(0.5)
 
     except WebSocketDisconnect:
         pass
