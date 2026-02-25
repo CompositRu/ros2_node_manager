@@ -9,7 +9,8 @@ import { HorizontalResizer, VerticalResizer } from './components/Resizer';
 import { useAlerts } from './hooks/useAlerts';
 import { ToastContainer } from './components/ToastContainer';
 import { ActivityBar } from './components/ActivityBar';
-import { SystemMonitor } from './components/SystemMonitor';
+import { AppStats } from './components/AppStats';
+import { UnifiedLogs } from './components/UnifiedLogs';
 
 // Min/max constraints
 const MIN_TREE_WIDTH = 200;
@@ -184,10 +185,17 @@ function App() {
           </>
         )}
 
-        {/* System Section */}
-        {activeSection === 'system' && (
+        {/* Logs Section */}
+        {activeSection === 'logs' && (
           <div className="flex-1 overflow-hidden">
-            <SystemMonitor connected={server.connected} />
+            <UnifiedLogs connected={server.connected} />
+          </div>
+        )}
+
+        {/* App Stats Section */}
+        {activeSection === 'stats' && (
+          <div className="flex-1 overflow-hidden">
+            <AppStats />
           </div>
         )}
       </div>

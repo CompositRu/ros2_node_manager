@@ -51,24 +51,30 @@ Icons:
 
 ---
 
-## 🚧 v0.2 — Activity Bar + System Monitor
+## ✅ v0.2 — Activity Bar + App Stats + Logs
 
-Первый шаг расширения: внедрить Activity Bar и секцию System.
+Внедрён Activity Bar и секции App Stats / Logs.
 
 ### Activity Bar (каркас)
-- [ ] Компонент ActivityBar — вертикальная иконочная полоса (48px ширина)
-- [ ] Иконки: Nodes (текущий view), System (новый)
-- [ ] Routing по секциям (state, не URL)
-- [ ] Подсветка активной секции
-- [ ] Tooltip на hover
+- [x] Компонент ActivityBar — вертикальная иконочная полоса (48px ширина)
+- [x] Иконки: Nodes, Logs, App Stats
+- [x] Routing по секциям (state, не URL)
+- [x] Подсветка активной секции
+- [x] Tooltip на hover
 
-### System Monitor
-- [ ] Секция System в Activity Bar
-- [ ] Числовые счётчики: CPU%, RSS, Exec, Streams, WS, Uptime, Total commands
-- [ ] Поллинг /api/debug/stats каждые 5 секунд
-- [ ] Unified log stream — все логи со всех нод одним потоком
-- [ ] Фильтр по уровню (DEBUG/INFO/WARN/ERROR)
-- [ ] Фильтр по имени ноды
+### App Stats (секция)
+- [x] Секция App Stats в Activity Bar
+- [x] Числовые счётчики: CPU%, RSS, Exec, Streams, WS, Uptime, Total commands
+- [x] Поллинг /api/debug/stats каждые 5 секунд
+- [x] Кнопка-подсказка (?) с описанием метрик
+
+### Unified Logs (секция)
+- [x] Секция Logs в Activity Bar
+- [x] Unified log stream — все логи со всех нод одним потоком
+- [x] WebSocket endpoint /ws/logs/all на бэкенде
+- [x] Фильтр по уровню (DEBUG/INFO/WARN/ERROR/FATAL)
+- [x] Фильтр по имени ноды
+- [x] Pause/Resume, Clear, Auto-scroll
 
 ```
 ┌──┬──────────────────────────────────────┐
