@@ -24,6 +24,8 @@ class Metrics:
     _ws_log_all_connections: int = 0
     _ws_alert_connections: int = 0
     _ws_diagnostic_connections: int = 0
+    _ws_topic_hz_connections: int = 0
+    _ws_topic_echo_connections: int = 0
 
     def subprocess_started(self) -> None:
         with self._lock:
@@ -78,12 +80,16 @@ class Metrics:
                     "log_all": self._ws_log_all_connections,
                     "alert": self._ws_alert_connections,
                     "diagnostic": self._ws_diagnostic_connections,
+                    "topic_hz": self._ws_topic_hz_connections,
+                    "topic_echo": self._ws_topic_echo_connections,
                     "total": (
                         self._ws_status_connections
                         + self._ws_log_connections
                         + self._ws_log_all_connections
                         + self._ws_alert_connections
                         + self._ws_diagnostic_connections
+                        + self._ws_topic_hz_connections
+                        + self._ws_topic_echo_connections
                     ),
                 },
                 "process": {

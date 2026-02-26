@@ -23,14 +23,14 @@ function StatCard({ label, value, unit }) {
 }
 
 const HELP_ITEMS = [
-  { label: 'CPU', desc: 'CPU usage of the server process. Normal: < 5%' },
-  { label: 'RSS', desc: 'Physical memory used by the server. Normal: 50\u2013150 MB. Constant growth = memory leak' },
-  { label: 'Exec', desc: 'Active one-shot docker exec commands (ros2 node list, etc). Normal: 0\u20133' },
-  { label: 'Streams', desc: 'Active streaming subprocesses (ros2 topic echo). 1 per open log stream' },
-  { label: 'WebSockets', desc: 'Active browser connections. 1\u20133 per open tab (status + alerts + logs)' },
-  { label: 'Uptime', desc: 'Server uptime since last restart' },
-  { label: 'Commands', desc: 'Total commands executed since server start' },
-  { label: 'Threads', desc: 'OS threads in the server process. Normal: 5\u201315' },
+  { label: 'CPU', desc: 'Загрузка CPU серверным процессом. Норма: < 5%' },
+  { label: 'RSS', desc: 'Физическая память сервера. Норма: 50\u2013150 МБ. Постоянный рост = утечка памяти' },
+  { label: 'Exec', desc: 'Активные разовые docker exec команды (ros2 node list и т.д.). Норма: 0\u20133' },
+  { label: 'Streams', desc: 'Активные потоковые подпроцессы (ros2 topic echo). 1 на каждый открытый лог-стрим' },
+  { label: 'WebSockets', desc: 'Активные подключения браузера. 1\u20133 на каждую открытую вкладку (status + alerts + logs)' },
+  { label: 'Uptime', desc: 'Время работы сервера с последнего перезапуска' },
+  { label: 'Commands', desc: 'Всего команд выполнено с момента запуска сервера' },
+  { label: 'Threads', desc: 'Потоки ОС в серверном процессе. Норма: 5\u201315' },
 ];
 
 export function AppStats() {

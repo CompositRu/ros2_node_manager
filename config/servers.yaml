@@ -8,6 +8,7 @@ servers:
     name: "Local Docker"
     type: local
     container: tram_autoware
+    ros_workspace: "$HOME/tram.autoware"
 
   - id: server_30639
     name: "Tram_30639"
@@ -17,6 +18,7 @@ servers:
     user: tram
     container: tram_autoware
     password: "1qaz@WSX"
+    ros_workspace: "$HOME/tram.autoware"
 
   # Another remote server (example)
   # - id: tram-test

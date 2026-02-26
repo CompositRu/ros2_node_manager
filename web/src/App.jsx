@@ -12,6 +12,7 @@ import { ActivityBar } from './components/ActivityBar';
 import { AppStats } from './components/AppStats';
 import { UnifiedLogs } from './components/UnifiedLogs';
 import { Diagnostics } from './components/Diagnostics';
+import { Topics } from './components/Topics';
 
 // Min/max constraints
 const MIN_TREE_WIDTH = 200;
@@ -193,6 +194,13 @@ function App() {
           </div>
         )}
 
+        {/* Topics Section */}
+        {activeSection === 'topics' && (
+          <div className="flex-1 overflow-hidden">
+            <Topics connected={server.connected} />
+          </div>
+        )}
+
         {/* Logs Section */}
         {activeSection === 'logs' && (
           <div className="flex-1 overflow-hidden">
@@ -211,7 +219,7 @@ function App() {
       {/* Footer */}
       <footer className="px-4 py-2 border-t border-gray-700 bg-gray-800 text-xs text-gray-500 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <span>ROS2 Node Manager v0.2.0</span>
+          <span>ROS2 Node Manager v0.4.0</span>
           {server.error && (
             <span className="text-red-400">Error: {server.error}</span>
           )}

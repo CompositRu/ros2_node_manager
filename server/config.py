@@ -7,7 +7,7 @@ from typing import Optional
 import yaml
 from pydantic_settings import BaseSettings
 
-from .models import ServerConfig, ServerType, AlertConfig
+from .models import ServerConfig, ServerType, AlertConfig, TopicGroupsConfig
 
 
 class Settings(BaseSettings):
@@ -94,3 +94,15 @@ def load_alert_config() -> AlertConfig:
     
     # Default config
     return AlertConfig()
+
+
+def load_topic_groups_config() -> TopicGroupsConfig:
+    """Load topic groups configuration from YAML file."""
+    config_file = settings.config_dir / "topic_groups.yaml"
+    if config_file.exists():
+        with open(config_file) as f:
+            data = yaml.safe_load(f)
+            if data:
+                return TopicGroupsConfig(**data)
+
+    return TopicGroupsConfig()

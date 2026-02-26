@@ -1,0 +1,40 @@
+# Topic Group Configuration for ROS2 Node Manager
+#
+# Define groups of related topics for monitoring Hz and Echo.
+# Groups are displayed in the Topics tab of the UI.
+# To add a new group, copy the template below:
+#
+#   - id: unique_id
+#     name: "Human-readable name"
+#     topics:
+#       - /topic/path/one
+#       - /topic/path/two
+
+topic_groups:
+  - id: lidar_raw
+    name: "Lidar Raw (rslidar_packets)"
+    topics:
+      - /sensing/lidar/front/rslidar_packets
+      - /sensing/lidar/front_left/rslidar_packets
+      - /sensing/lidar/front_right/rslidar_packets
+      - /sensing/lidar/top/rslidar_packets
+
+  - id: lidar_pointclouds
+    name: "Lidar Pointclouds (after driver)"
+    topics:
+      - /sensing/lidar/front/pointcloud_raw_ex
+      - /sensing/lidar/front_left/pointcloud_raw_ex
+      - /sensing/lidar/front_right/pointcloud_raw_ex
+      - /sensing/lidar/top/pointcloud_raw_ex
+
+  - id: odometry
+    name: "Odometry"
+    topics:
+      - /vehicle/front_bogie_velocity
+      - /vehicle/rear_bogie_velocity
+
+  - id: gnss
+    name: "GNSS"
+    topics:
+      - /sensing/gnss/master/tram_fix
+      - /sensing/gnss/rover/tram_fix

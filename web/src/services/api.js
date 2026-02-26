@@ -91,6 +91,16 @@ export async function groupAction(namespace, action, force = false) {
   });
 }
 
+// === Topics API ===
+
+export async function getTopicGroups() {
+  return request('/topics/groups');
+}
+
+export async function toggleGroupHz(groupId) {
+  return request(`/topics/groups/${groupId}/hz`, { method: 'POST' });
+}
+
 // === System Stats ===
 
 export async function getStats() {

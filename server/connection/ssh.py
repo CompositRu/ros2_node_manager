@@ -20,9 +20,10 @@ class SSHDockerConnection(BaseConnection):
         port: int = 22,
         ssh_key: Optional[str] = None,
         password: Optional[str] = None,
-        ros_setup: str = "/opt/ros/humble/setup.bash"
+        ros_setup: str = "/opt/ros/humble/setup.bash",
+        ros_workspace: Optional[str] = None,
     ):
-        super().__init__(container, ros_setup)
+        super().__init__(container, ros_setup, ros_workspace=ros_workspace)
         self.host = host
         self.user = user
         self.port = port

@@ -147,3 +147,73 @@ export function createDiagnosticsSocket(onMessage, onError, onConnected) {
 
   return ws;
 }
+
+export function createTopicHzSocket(onMessage, onError, onConnected) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  const url = `${protocol}//${host}/ws/topics/hz`;
+
+  const ws = new WebSocket(url);
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'connected' && onConnected) {
+        onConnected(data.message);
+      } else if (data.type === 'hz_update') {
+        onMessage(data);
+      } else if (data.type === 'error' && onError) {
+        onError(data.message);
+      }
+    } catch (e) {
+      console.error('Failed to parse topic Hz message:', e);
+    }
+  };
+
+  ws.onerror = (error) => {
+    console.error('Topic Hz WebSocket error:', error);
+    if (onError) onError(error.message || 'WebSocket error');
+  };
+
+  ws.onclose = () => {
+    console.log('Topic Hz WebSocket closed');
+  };
+
+  return ws;
+}
+
+export function createTopicEchoSocket(groupId, onMessage, onError, onConnected) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  const url = `${protocol}//${host}/ws/topics/echo/${groupId}`;
+
+  const ws = new WebSocket(url);
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'connected' && onConnected) {
+        onConnected(data);
+      } else if (data.type === 'echo') {
+        onMessage(data);
+      } else if (data.type === 'error' && onError) {
+        onError(data.message);
+      }
+    } catch (e) {
+      console.error('Failed to parse topic echo message:', e);
+    }
+  };
+
+  ws.onerror = (error) => {
+    console.error('Topic Echo WebSocket error:', error);
+    if (onError) onError(error.message || 'WebSocket error');
+  };
+
+  ws.onclose = () => {
+    console.log(`Topic Echo WebSocket closed for group ${groupId}`);
+  };
+
+  return ws;
+}

@@ -15,9 +15,9 @@ from .models import ServerConfig, ServerType
 from .connection import BaseConnection, LocalDockerConnection, SSHDockerConnection, ConnectionError, ContainerNotFoundError
 from .state import StatePersister
 # from .services import NodeServicee
-from .routers import servers_router, nodes_router, websocket_router, debug_router
-from .config import settings, load_servers_config, get_server_by_id, load_alert_config
-from .services import NodeService, AlertService
+from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router
+from .config import settings, load_servers_config, get_server_by_id, load_alert_config, load_topic_groups_config
+from .services import NodeService, AlertService, TopicHzMonitor
 from fastapi.responses import FileResponse, JSONResponse
 
 
@@ -29,6 +29,7 @@ class AppState:
     node_service: Optional[NodeService] = None
     persister: Optional[StatePersister] = None
     alert_service: Optional[AlertService] = None
+    topic_hz_monitor: Optional[TopicHzMonitor] = None
     is_shutting_down: bool = False
 
 
@@ -44,7 +45,10 @@ async def connect_to_server(
     """Connect to a server and initialize services."""
     global app_state
     
-    # Stop previous alert service if running
+    # Stop previous services if running
+    if app_state.topic_hz_monitor:
+        await app_state.topic_hz_monitor.stop()
+        app_state.topic_hz_monitor = None
     if app_state.alert_service:
         await app_state.alert_service.stop()
         app_state.alert_service = None
@@ -55,7 +59,8 @@ async def connect_to_server(
     
     # Create connection based on server type
     if server.type == ServerType.LOCAL:
-        connection = LocalDockerConnection(server.container)
+        connection = LocalDockerConnection(server.container,
+                                           ros_workspace=server.ros_workspace)
     else:
         connection = SSHDockerConnection(
             container=server.container,
@@ -63,12 +68,14 @@ async def connect_to_server(
             user=server.user,
             port=server.port,
             ssh_key=server.ssh_key,
-            password=password_override or server.password
+            password=password_override or server.password,
+            ros_workspace=server.ros_workspace,
         )
     
-    # Connect
+    # Connect and cache ROS env for fast subsequent commands
     await connection.connect()
-    
+    await connection.cache_ros_env()
+
     # Initialize persister and service
     persister = StatePersister(server.id)
     persister.load()
@@ -80,17 +87,27 @@ async def connect_to_server(
     alert_service = AlertService(connection, alert_config)
     await alert_service.start()
 
+    # Initialize topic hz monitor (on-demand, no groups active by default)
+    topic_groups_config = load_topic_groups_config()
+    topic_hz_monitor = TopicHzMonitor(connection, topic_groups_config.topic_groups)
+
     # Update state
     app_state.connection = connection
     app_state.current_server_id = server.id
     app_state.persister = persister
     app_state.node_service = node_service
     app_state.alert_service = alert_service
+    app_state.topic_hz_monitor = topic_hz_monitor
 
 
 async def disconnect_server() -> None:
     """Disconnect from current server and cleanup services."""
     global app_state
+
+    # Stop topic hz monitor
+    if app_state.topic_hz_monitor:
+        await app_state.topic_hz_monitor.stop()
+        app_state.topic_hz_monitor = None
 
     # Stop alert service
     if app_state.alert_service:
@@ -168,6 +185,8 @@ async def lifespan(app: FastAPI):
     app_state.is_shutting_down = True
     if auto_connect_task and not auto_connect_task.done():
         auto_connect_task.cancel()
+    if app_state.topic_hz_monitor:
+        await app_state.topic_hz_monitor.stop()
     if app_state.alert_service:
         await app_state.alert_service.stop()
     if app_state.connection:
@@ -196,6 +215,7 @@ app.include_router(servers_router)
 app.include_router(nodes_router)
 app.include_router(websocket_router)
 app.include_router(debug_router)
+app.include_router(topics_router)
 
 
 # Serve static files (React build)

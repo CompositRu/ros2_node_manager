@@ -16,11 +16,22 @@ class ContainerNotFoundError(ConnectionError):
 
 class BaseConnection(ABC):
     """Abstract base class for Docker connections."""
-    
-    def __init__(self, container: str, ros_setup: str = "/opt/ros/humble/setup.bash"):
+
+    _ENV_CACHE_FILE = "/tmp/.ros2nm_env_cache"
+    _ENV_VARS_TO_CACHE = [
+        "AMENT_PREFIX_PATH", "PYTHONPATH", "PATH", "LD_LIBRARY_PATH",
+        "CMAKE_PREFIX_PATH", "COLCON_PREFIX_PATH",
+        "ROS_DOMAIN_ID", "ROS_LOCALHOST_ONLY", "RMW_IMPLEMENTATION",
+        "CYCLONEDDS_URI", "ROS_DISTRO", "ROS_VERSION", "ROS_PYTHON_VERSION",
+    ]
+
+    def __init__(self, container: str, ros_setup: str = "/opt/ros/humble/setup.bash",
+                 ros_workspace: Optional[str] = None):
         self.container = container
         self.ros_setup = ros_setup
+        self.ros_workspace = ros_workspace
         self._connected = False
+        self._env_cached = False
     
     @property
     def connected(self) -> bool:
@@ -58,18 +69,49 @@ class BaseConnection(ABC):
             'fi'
         )
 
+    def _source_ros(self) -> str:
+        """Build ROS source commands (base + workspace overlay if exists)."""
+        sources = f"source {self.ros_setup}"
+        if self.ros_workspace:
+            ws_setup = f"{self.ros_workspace}/install/setup.bash"
+            sources += f" && {{ [ -f {ws_setup} ] && source {ws_setup} || true; }}"
+        return sources
+
+    async def cache_ros_env(self) -> None:
+        """Source ROS workspace once, save env vars to a file inside container.
+
+        Subsequent commands source this small file instead of the heavy workspace,
+        cutting docker exec startup from ~20s to near-instant.
+        """
+        vars_str = " ".join(self._ENV_VARS_TO_CACHE)
+        cmd = f"declare -p {vars_str} 2>/dev/null > {self._ENV_CACHE_FILE}"
+        try:
+            # First call — uses the slow path (full sourcing) since cache is empty
+            await self.exec_command(cmd, timeout=60)
+            self._env_cached = True
+            print(f"🔧 Cached ROS env to {self._ENV_CACHE_FILE}")
+        except Exception as e:
+            print(f"⚠ Failed to cache ROS env: {e}")
+            self._env_cached = False
+
     def _build_docker_cmd(self, cmd: str) -> str:
         """Build full docker exec command with ROS setup."""
         escaped_cmd = cmd.replace("'", "'\"'\"'")
+        if self._env_cached:
+            return f"docker exec {self.container} bash -c 'source {self._ENV_CACHE_FILE} && {escaped_cmd}'"
         ros_env = self._ros_env()
-        return f"docker exec {self.container} bash -c '{ros_env} && source {self.ros_setup} && {escaped_cmd}'"
+        source_ros = self._source_ros()
+        return f"docker exec {self.container} bash -c '{ros_env} && {source_ros} && {escaped_cmd}'"
 
     def _build_docker_cmd_stream(self, cmd: str) -> str:
         """Build docker exec command for streaming (with unbuffered output)."""
         escaped_cmd = cmd.replace("'", "'\"'\"'")
+        if self._env_cached:
+            return f"docker exec {self.container} bash -c 'export PYTHONUNBUFFERED=1 && source {self._ENV_CACHE_FILE} && {escaped_cmd}'"
         ros_env = self._ros_env()
+        source_ros = self._source_ros()
         # PYTHONUNBUFFERED=1 forces unbuffered output for Python-based ROS2 CLI tools
-        return f"docker exec {self.container} bash -c 'export PYTHONUNBUFFERED=1 && {ros_env} && source {self.ros_setup} && {escaped_cmd}'"
+        return f"docker exec {self.container} bash -c 'export PYTHONUNBUFFERED=1 && {ros_env} && {source_ros} && {escaped_cmd}'"
 
     # === ROS2 CLI wrappers ===
     

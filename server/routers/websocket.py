@@ -6,9 +6,10 @@ from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import NodeStatus
-from ..services import stream_node_logs, stream_all_logs, stream_diagnostics, stream_bool_topic
+from ..services import stream_node_logs, stream_all_logs, stream_diagnostics, stream_bool_topic, stream_group_echo
 from ..services.metrics import metrics
 from ..connection import ContainerNotFoundError
+from ..config import load_topic_groups_config
 
 router = APIRouter(tags=["websocket"])
 
@@ -313,3 +314,120 @@ async def alerts_websocket(websocket: WebSocket):
         print(f"Alerts WebSocket error: {e}")
     finally:
         metrics.ws_disconnect("alert")
+
+
+@router.websocket("/ws/topics/hz")
+async def topic_hz_websocket(websocket: WebSocket):
+    """WebSocket for streaming Hz values from shared TopicHzMonitor.
+
+    Sends updates every 2 seconds with current Hz for all topic groups.
+    """
+    from ..main import app_state
+
+    await websocket.accept()
+    metrics.ws_connect("topic_hz")
+
+    if not app_state.topic_hz_monitor:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Topic monitoring not active",
+        })
+        await websocket.close()
+        metrics.ws_disconnect("topic_hz")
+        return
+
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "message": "Streaming topic Hz",
+        })
+
+        while not app_state.is_shutting_down:
+            if app_state.topic_hz_monitor:
+                groups = app_state.topic_hz_monitor.get_groups_with_hz()
+                await websocket.send_json({
+                    "type": "hz_update",
+                    "groups": groups,
+                    "timestamp": datetime.now().isoformat(),
+                })
+
+            # Sleep 2 seconds in 0.5s increments (to check shutdown)
+            for _ in range(4):
+                if app_state.is_shutting_down:
+                    break
+                await asyncio.sleep(0.5)
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"Topic Hz WebSocket error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        metrics.ws_disconnect("topic_hz")
+
+
+@router.websocket("/ws/topics/echo/{group_id}")
+async def topic_echo_websocket(websocket: WebSocket, group_id: str):
+    """WebSocket for streaming echo of all topics in a group.
+
+    Per-client: starts ros2 topic echo for each topic, multiplexes output.
+    Processes are killed when client disconnects.
+    """
+    from ..main import app_state
+
+    await websocket.accept()
+    metrics.ws_connect("topic_echo")
+
+    if not app_state.connection or not app_state.connection.connected:
+        await websocket.send_json({
+            "type": "error",
+            "message": "Not connected to server",
+        })
+        await websocket.close()
+        metrics.ws_disconnect("topic_echo")
+        return
+
+    # Find group by id
+    config = load_topic_groups_config()
+    group = None
+    for g in config.topic_groups:
+        if g.id == group_id:
+            group = g
+            break
+
+    if not group:
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Group '{group_id}' not found",
+        })
+        await websocket.close()
+        metrics.ws_disconnect("topic_echo")
+        return
+
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "message": f"Streaming echo for group '{group.name}'",
+            "group_id": group.id,
+            "topics": group.topics,
+        })
+
+        async for msg in stream_group_echo(app_state.connection, group.topics):
+            await websocket.send_json({
+                "type": "echo",
+                **msg,
+            })
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"Topic Echo WebSocket error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        metrics.ws_disconnect("topic_echo")

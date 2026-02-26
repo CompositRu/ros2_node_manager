@@ -47,6 +47,7 @@ class ServerConfig(BaseModel):
     user: Optional[str] = None
     ssh_key: Optional[str] = None
     password: Optional[str] = None
+    ros_workspace: Optional[str] = None  # e.g. "$HOME/tram.autoware"
 
 
 class ServerStatus(BaseModel):
@@ -196,3 +197,17 @@ class AlertConfig(BaseModel):
     # Топики для мониторинга значений
     monitored_topics: list[dict] = Field(default_factory=list)
     # Пример: [{"topic": "/system/emergency", "field": "data", "alert_on_value": true}]
+
+
+# === Topic Group Models ===
+
+class TopicGroup(BaseModel):
+    """Группа связанных топиков для мониторинга."""
+    id: str
+    name: str
+    topics: list[str]
+
+
+class TopicGroupsConfig(BaseModel):
+    """Конфигурация групп топиков."""
+    topic_groups: list[TopicGroup] = Field(default_factory=list)
