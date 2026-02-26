@@ -369,6 +369,102 @@ async def topic_hz_websocket(websocket: WebSocket):
         metrics.ws_disconnect("topic_hz")
 
 
+@router.websocket("/ws/topics/echo-single/{topic:path}")
+async def topic_echo_single_websocket(websocket: WebSocket, topic: str):
+    """WebSocket for streaming echo of a single topic.
+
+    Reuses stream_group_echo with a single-element topic list.
+    """
+    from ..main import app_state
+
+    await websocket.accept()
+    metrics.ws_connect("topic_echo")
+
+    if not topic.startswith("/"):
+        topic = "/" + topic
+
+    if not app_state.connection or not app_state.connection.connected:
+        await websocket.send_json({"type": "error", "message": "Not connected to server"})
+        await websocket.close()
+        metrics.ws_disconnect("topic_echo")
+        return
+
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "message": f"Streaming echo for {topic}",
+            "topic": topic,
+        })
+
+        async for msg in stream_group_echo(app_state.connection, [topic]):
+            await websocket.send_json({"type": "echo", **msg})
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"Single Topic Echo WebSocket error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        metrics.ws_disconnect("topic_echo")
+
+
+@router.websocket("/ws/topics/hz-single/{topic:path}")
+async def topic_hz_single_websocket(websocket: WebSocket, topic: str):
+    """WebSocket for streaming Hz of a single topic.
+
+    Runs `ros2 topic hz` and parses output to send rate values.
+    """
+    from ..main import app_state
+
+    await websocket.accept()
+    metrics.ws_connect("topic_hz")
+
+    if not topic.startswith("/"):
+        topic = "/" + topic
+
+    if not app_state.connection or not app_state.connection.connected:
+        await websocket.send_json({"type": "error", "message": "Not connected to server"})
+        await websocket.close()
+        metrics.ws_disconnect("topic_hz")
+        return
+
+    try:
+        await websocket.send_json({
+            "type": "connected",
+            "message": f"Monitoring Hz for {topic}",
+            "topic": topic,
+        })
+
+        cmd = f"ros2 topic hz {topic}"
+        async for line in app_state.connection.exec_stream(cmd):
+            line = line.strip()
+            if "average rate:" in line:
+                try:
+                    rate = float(line.split("average rate:")[1].strip())
+                    await websocket.send_json({
+                        "type": "hz",
+                        "topic": topic,
+                        "hz": rate,
+                        "timestamp": datetime.now().isoformat(),
+                    })
+                except (ValueError, IndexError):
+                    pass
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"Single Topic Hz WebSocket error: {e}")
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except:
+            pass
+    finally:
+        metrics.ws_disconnect("topic_hz")
+
+
 @router.websocket("/ws/topics/echo/{group_id}")
 async def topic_echo_websocket(websocket: WebSocket, group_id: str):
     """WebSocket for streaming echo of all topics in a group.

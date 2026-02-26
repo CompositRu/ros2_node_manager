@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import { useTopicGroups } from '../hooks/useTopicGroups';
 import { useTopicEcho } from '../hooks/useTopicEcho';
 import { toggleGroupHz } from '../services/api';
+import { TopicTree } from './TopicTree';
 
 function HzBadge({ hz }) {
   if (hz === null || hz === undefined) {
@@ -200,17 +201,17 @@ function EchoPanel({ groupName, messages, paused, onTogglePause, onClear, onClos
   );
 }
 
-export function Topics({ connected }) {
+function GroupsView({ connected }) {
   const { groups, status: hzStatus, toggleGroupActive } = useTopicGroups(connected);
   const echo = useTopicEcho();
 
   const handleHz = async (groupId) => {
-    toggleGroupActive(groupId); // instant UI feedback
+    toggleGroupActive(groupId);
     try {
       await toggleGroupHz(groupId);
     } catch (e) {
       console.error('Failed to toggle Hz:', e);
-      toggleGroupActive(groupId); // revert on error
+      toggleGroupActive(groupId);
     }
   };
 
@@ -222,20 +223,8 @@ export function Topics({ connected }) {
     }
   };
 
-  if (!connected) {
-    return (
-      <div className="h-full flex items-center justify-center text-gray-500">
-        <div className="text-center">
-          <p className="mb-2">Not connected</p>
-          <p className="text-sm">Connect to a server to view topic groups</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-full flex flex-col">
-      {/* Groups Grid */}
       <div className="flex-1 overflow-y-auto p-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-200">Topic Groups</h2>
@@ -269,7 +258,6 @@ export function Topics({ connected }) {
         </div>
       </div>
 
-      {/* Echo Panel */}
       {echo.echoGroupId && (
         <EchoPanel
           groupName={echo.echoGroupName}
@@ -280,6 +268,55 @@ export function Topics({ connected }) {
           onClose={echo.stopEcho}
         />
       )}
+    </div>
+  );
+}
+
+const SUB_TABS = [
+  { id: 'groups', label: 'Groups' },
+  { id: 'tree', label: 'Tree' },
+];
+
+export function Topics({ connected }) {
+  const [subTab, setSubTab] = useState('groups');
+
+  if (!connected) {
+    return (
+      <div className="h-full flex items-center justify-center text-gray-500">
+        <div className="text-center">
+          <p className="mb-2">Not connected</p>
+          <p className="text-sm">Connect to a server to view topics</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Sub-tab bar */}
+      <div className="flex items-center border-b border-gray-700 px-4 flex-shrink-0">
+        {SUB_TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setSubTab(tab.id)}
+            className={`
+              px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
+              ${subTab === tab.id
+                ? 'text-blue-400 border-blue-400'
+                : 'text-gray-400 border-transparent hover:text-gray-200 hover:border-gray-500'
+              }
+            `}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-hidden">
+        {subTab === 'groups' && <GroupsView connected={connected} />}
+        {subTab === 'tree' && <TopicTree connected={connected} />}
+      </div>
     </div>
   );
 }

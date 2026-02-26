@@ -166,6 +166,24 @@ class BaseConnection(ABC):
             traceback.print_exc()
             return {}
     
+    async def ros2_topic_list(self) -> list[dict]:
+        """Get list of all topics with their message types."""
+        output = await self.exec_command("ros2 topic list -t")
+        topics = []
+        for line in output.strip().split("\n"):
+            line = line.strip()
+            if not line or not line.startswith("/"):
+                continue
+            if " [" in line and line.endswith("]"):
+                bracket_idx = line.rindex(" [")
+                name = line[:bracket_idx].strip()
+                msg_type = line[bracket_idx + 2:-1]
+            else:
+                name = line
+                msg_type = ""
+            topics.append({"name": name, "type": msg_type})
+        return topics
+
     async def ros2_service_list(self) -> list[str]:
         """Get list of services."""
         output = await self.exec_command("ros2 service list")

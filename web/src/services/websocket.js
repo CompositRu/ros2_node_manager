@@ -183,6 +183,70 @@ export function createTopicHzSocket(onMessage, onError, onConnected) {
   return ws;
 }
 
+export function createSingleTopicEchoSocket(topicName, onMessage, onError, onConnected) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  const path = topicName.startsWith('/') ? topicName.slice(1) : topicName;
+  const url = `${protocol}//${host}/ws/topics/echo-single/${path}`;
+
+  const ws = new WebSocket(url);
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'connected' && onConnected) {
+        onConnected(data);
+      } else if (data.type === 'echo') {
+        onMessage(data);
+      } else if (data.type === 'error' && onError) {
+        onError(data.message);
+      }
+    } catch (e) {
+      console.error('Failed to parse single topic echo message:', e);
+    }
+  };
+
+  ws.onerror = (error) => {
+    if (onError) onError(error.message || 'WebSocket error');
+  };
+
+  ws.onclose = () => {};
+
+  return ws;
+}
+
+export function createSingleTopicHzSocket(topicName, onMessage, onError, onConnected) {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  const path = topicName.startsWith('/') ? topicName.slice(1) : topicName;
+  const url = `${protocol}//${host}/ws/topics/hz-single/${path}`;
+
+  const ws = new WebSocket(url);
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'connected' && onConnected) {
+        onConnected(data);
+      } else if (data.type === 'hz') {
+        onMessage(data);
+      } else if (data.type === 'error' && onError) {
+        onError(data.message);
+      }
+    } catch (e) {
+      console.error('Failed to parse single topic Hz message:', e);
+    }
+  };
+
+  ws.onerror = (error) => {
+    if (onError) onError(error.message || 'WebSocket error');
+  };
+
+  ws.onclose = () => {};
+
+  return ws;
+}
+
 export function createTopicEchoSocket(groupId, onMessage, onError, onConnected) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;

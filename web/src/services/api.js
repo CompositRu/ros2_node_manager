@@ -93,6 +93,10 @@ export async function groupAction(namespace, action, force = false) {
 
 // === Topics API ===
 
+export async function getTopicList() {
+  return request('/topics/list');
+}
+
 export async function getTopicGroups() {
   return request('/topics/groups');
 }
