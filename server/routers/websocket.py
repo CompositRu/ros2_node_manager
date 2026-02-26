@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import NodeStatus
-from ..services import stream_node_logs, stream_all_logs, stream_diagnostics
+from ..services import stream_node_logs, stream_all_logs, stream_diagnostics, stream_bool_topic
 from ..services.metrics import metrics
 from ..connection import ContainerNotFoundError
 
@@ -102,21 +102,39 @@ async def diagnostics_websocket(websocket: WebSocket):
             "message": "Streaming diagnostics"
         })
 
-        async for diag_items in stream_diagnostics(app_state.connection):
-            await websocket.send_json({
-                "type": "diagnostics",
-                "items": [
-                    {
-                        "name": item.name,
-                        "level": item.level,
-                        "message": item.message,
-                        "hardware_id": item.hardware_id,
-                        "values": item.values,
-                        "timestamp": item.timestamp.isoformat(),
-                    }
-                    for item in diag_items
-                ],
-            })
+        lock = asyncio.Lock()
+        conn = app_state.connection
+
+        async def _send_items(items):
+            async with lock:
+                await websocket.send_json({
+                    "type": "diagnostics",
+                    "items": [
+                        {
+                            "name": item.name,
+                            "level": item.level,
+                            "message": item.message,
+                            "hardware_id": item.hardware_id,
+                            "values": item.values,
+                            "timestamp": item.timestamp.isoformat(),
+                        }
+                        for item in items
+                    ],
+                })
+
+        async def run_diagnostics():
+            async for diag_items in stream_diagnostics(conn):
+                await _send_items(diag_items)
+
+        async def run_lidar_sync():
+            async for items in stream_bool_topic(
+                conn,
+                "/sensing/lidar/concatenated/lidar_sync_checker/lidar_sync_flag",
+                "lidar_sync_flag",
+            ):
+                await _send_items(items)
+
+        await asyncio.gather(run_diagnostics(), run_lidar_sync())
 
     except WebSocketDisconnect:
         pass

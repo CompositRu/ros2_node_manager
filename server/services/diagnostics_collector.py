@@ -1,5 +1,6 @@
 """Diagnostics collector for streaming ROS2 /diagnostics topic."""
 
+import asyncio
 import re
 import yaml
 from datetime import datetime
@@ -231,3 +232,31 @@ def _parse_diagnostic_array_regex(text: str) -> list[DiagnosticItem]:
         ))
 
     return items
+
+
+async def stream_bool_topic(
+    connection: BaseConnection,
+    topic: str,
+    name: str,
+) -> AsyncIterator[list[DiagnosticItem]]:
+    """Stream a Bool topic and yield DiagnosticItem (level 0=true, 1=false)."""
+    cmd = f"ros2 topic echo {topic}"
+    buffer = []
+
+    try:
+        async for line in connection.exec_stream(cmd):
+            buffer.append(line)
+            if line.strip() == "---":
+                text = "\n".join(buffer)
+                buffer = []
+                match = re.search(r"data:\s*(true|false)", text, re.IGNORECASE)
+                if match:
+                    value = match.group(1).lower() == "true"
+                    yield [DiagnosticItem(
+                        name=name,
+                        level=0 if value else 1,
+                        message=str(value),
+                        timestamp=datetime.now(),
+                    )]
+    except Exception as e:
+        print(f"Bool topic stream error ({topic}): {e}")

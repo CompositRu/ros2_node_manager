@@ -38,10 +38,19 @@ function isBagRecorderItem(name) {
   return name.includes('bag_recorder');
 }
 
+function isLidarSyncItem(name) {
+  return name.includes('lidar_sync_flag');
+}
+
 const BAG_RECORDER_MESSAGES = {
   0: 'Идёт запись бэга',
   1: 'Бэг не записывается',
   3: 'Нода не активна',
+};
+
+const LIDAR_SYNC_MESSAGES = {
+  0: 'Лидары синхронизированы',
+  1: 'Лидары не синхронизированы',
 };
 const LEVEL_COLORS = {
   0: 'text-green-400',
@@ -158,6 +167,25 @@ function BagRecorderCard({ item, onClick }) {
         </span>
       </div>
       <div className="text-xs text-gray-400">Bag Recorder</div>
+    </button>
+  );
+}
+
+function LidarSyncCard({ item, onClick }) {
+  const statusMsg = LIDAR_SYNC_MESSAGES[item.level] ?? LIDAR_SYNC_MESSAGES[1];
+
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded border px-3 py-2.5 text-left transition-colors hover:brightness-125 cursor-pointer ${LEVEL_BG[item.level] ?? LEVEL_BG[3]}`}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${LEVEL_DOT[item.level] ?? LEVEL_DOT[3]}`} />
+        <span className={`text-sm font-semibold ${LEVEL_COLORS[item.level] ?? LEVEL_COLORS[3]}`}>
+          {statusMsg}
+        </span>
+      </div>
+      <div className="text-xs text-gray-400">Lidar Sync</div>
     </button>
   );
 }
@@ -550,6 +578,12 @@ export function Diagnostics({ connected }) {
             {rest.map((item) =>
               isBagRecorderItem(item.name) ? (
                 <BagRecorderCard
+                  key={item.name}
+                  item={item}
+                  onClick={() => setSelectedName(item.name)}
+                />
+              ) : isLidarSyncItem(item.name) ? (
+                <LidarSyncCard
                   key={item.name}
                   item={item}
                   onClick={() => setSelectedName(item.name)}
