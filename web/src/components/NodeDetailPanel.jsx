@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import * as api from '../services/api';
 
 const Spinner = () => (
@@ -18,6 +18,8 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
   const [cache, setCache] = useState({});
   const [params, setParams] = useState(null);
   const [paramsLoading, setParamsLoading] = useState(false);
+  const [nodeInfoRefreshing, setNodeInfoRefreshing] = useState(false);
+  const nodeInfoRefreshingRef = useRef(false);
 
   useEffect(() => {
     if (!nodeName) {
@@ -97,8 +99,8 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
     }
   };
 
-  const loadParams = async () => {
-    if (!nodeName) return;
+  const loadParams = useCallback(async () => {
+    if (!nodeName || paramsLoading) return;
     setParamsLoading(true);
     try {
       const data = await api.getNodeParams(nodeName);
@@ -108,7 +110,23 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
     } finally {
       setParamsLoading(false);
     }
-  };
+  }, [nodeName, paramsLoading]);
+
+  const refreshNodeInfo = useCallback(async () => {
+    if (!nodeName || nodeInfoRefreshingRef.current) return;
+    nodeInfoRefreshingRef.current = true;
+    setNodeInfoRefreshing(true);
+    try {
+      const data = await api.getNodeDetail(nodeName, true);
+      setNode(data.node);
+      setCache(prev => ({ ...prev, [nodeName]: data.node }));
+    } catch (err) {
+      console.error('Error refreshing node info:', err);
+    } finally {
+      nodeInfoRefreshingRef.current = false;
+      setNodeInfoRefreshing(false);
+    }
+  }, [nodeName]);
 
   const handleShutdown = async (force = false) => {
     setActionLoading('kill');
@@ -337,7 +355,7 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
 
           {/* Content */}
           <div className="flex-1 overflow-auto p-4 space-y-4">
-            <Section title="Parameters" defaultOpen={true}>
+            <Section id="parameters" title="Parameters" refreshing={paramsLoading} onOpen={loadParams}>
               {params && Object.keys(params).length > 0 ? (
                 <div className="space-y-1 text-sm font-mono max-h-64 overflow-auto">
                   {Object.entries(params).map(([key, value]) => (
@@ -346,26 +364,15 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
                       <span className="text-gray-300">{formatValue(value)}</span>
                     </div>
                   ))}
-                  <button
-                    onClick={loadParams}
-                    disabled={paramsLoading}
-                    className="mt-2 px-2 py-1 bg-gray-600 hover:bg-gray-700 text-gray-300 text-xs rounded disabled:opacity-50 flex items-center gap-1"
-                  >
-                    {paramsLoading ? <Spinner /> : '↻'} Refresh
-                  </button>
                 </div>
               ) : (
-                <button
-                  onClick={loadParams}
-                  disabled={paramsLoading}
-                  className="px-3 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm rounded disabled:opacity-50 flex items-center gap-1"
-                >
-                  {paramsLoading ? <><Spinner /> Loading...</> : 'Load Parameters'}
-                </button>
+                <span className="text-gray-500 text-sm">
+                  {paramsLoading ? 'Loading parameters...' : 'No parameters'}
+                </span>
               )}
             </Section>
 
-            <Section title={`Subscribers (${node.subscribers?.length || 0})`}>
+            <Section id="subscribers" title={`Subscribers (${node.subscribers?.length || 0})`} refreshing={nodeInfoRefreshing} onOpen={refreshNodeInfo}>
               {(node.subscribers?.length || 0) > 0 ? (
                 <ul className="text-sm font-mono space-y-0.5 max-h-48 overflow-auto">
                   {node.subscribers.map(sub => (
@@ -377,7 +384,7 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
               )}
             </Section>
 
-            <Section title={`Publishers (${node.publishers?.length || 0})`}>
+            <Section id="publishers" title={`Publishers (${node.publishers?.length || 0})`} refreshing={nodeInfoRefreshing} onOpen={refreshNodeInfo}>
               {(node.publishers?.length || 0) > 0 ? (
                 <ul className="text-sm font-mono space-y-0.5 max-h-48 overflow-auto">
                   {node.publishers.map(pub => (
@@ -389,7 +396,7 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
               )}
             </Section>
 
-            <Section title={`Services (${node.services?.length || 0})`}>
+            <Section id="services" title={`Services (${node.services?.length || 0})`} refreshing={nodeInfoRefreshing} onOpen={refreshNodeInfo}>
               {(node.services?.length || 0) > 0 ? (
                 <ul className="text-sm font-mono space-y-0.5 max-h-48 overflow-auto">
                   {node.services.map(srv => (
@@ -407,18 +414,28 @@ export function NodeDetailPanel({ nodeName, onShowLogs, onNodeChanged }) {
   );
 }
 
-function Section({ title, children, defaultOpen = false }) {
-  const storageKey = `section-${title}`;
+function Section({ id, title, children, defaultOpen = false, refreshing = false, onOpen }) {
+  const storageKey = `section-${id || title}`;
 
   const [isOpen, setIsOpen] = useState(() => {
     const saved = localStorage.getItem(storageKey);
     return saved !== null ? saved === 'true' : defaultOpen;
   });
 
+  // Trigger onOpen on mount if section is already open (from localStorage)
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      if (isOpen && onOpen) onOpen();
+    }
+  }, []);
+
   const toggleOpen = () => {
     const newState = !isOpen;
     setIsOpen(newState);
     localStorage.setItem(storageKey, String(newState));
+    if (newState && onOpen) onOpen();
   };
 
   return (
@@ -428,7 +445,10 @@ function Section({ title, children, defaultOpen = false }) {
         className="w-full flex items-center justify-between p-2 hover:bg-gray-700/50"
       >
         <span className="text-gray-300 font-medium text-sm">{title}</span>
-        <span className="text-gray-500">{isOpen ? '▼' : '▶'}</span>
+        <span className="flex items-center gap-1.5 text-gray-500">
+          {refreshing && <Spinner />}
+          {isOpen ? '▼' : '▶'}
+        </span>
       </button>
       {isOpen && (
         <div className="p-2 border-t border-gray-700">
