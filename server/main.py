@@ -17,7 +17,7 @@ from .state import StatePersister
 # from .services import NodeServicee
 from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router, history_router
 from .config import settings, load_servers_config, get_server_by_id, load_alert_config, load_topic_groups_config
-from .services import NodeService, AlertService, TopicHzMonitor, HistoryStore
+from .services import NodeService, AlertService, TopicHzMonitor, HistoryStore, LogCollector
 from fastapi.responses import FileResponse, JSONResponse
 
 
@@ -31,6 +31,7 @@ class AppState:
     alert_service: Optional[AlertService] = None
     topic_hz_monitor: Optional[TopicHzMonitor] = None
     history_store: Optional[HistoryStore] = None
+    log_collector: Optional[LogCollector] = None
     is_shutting_down: bool = False
 
 
@@ -47,6 +48,9 @@ async def connect_to_server(
     global app_state
     
     # Stop previous services if running
+    if app_state.log_collector:
+        await app_state.log_collector.stop()
+        app_state.log_collector = None
     if app_state.history_store:
         await app_state.history_store.close()
         app_state.history_store = None
@@ -98,8 +102,13 @@ async def connect_to_server(
     # Initialize history store (persistent log/alert storage)
     history_store = HistoryStore(server.id, settings.data_dir)
     await history_store.initialize()
-    await history_store.start_log_collector(connection)
     alert_service.history_store = history_store
+
+    # Initialize single LogCollector — one /rosout stream for everything
+    log_collector = LogCollector(connection)
+    log_collector.add_callback(history_store.on_log_message)
+    log_collector.add_callback(alert_service.on_log_message)
+    await log_collector.start()
 
     # Update state
     app_state.connection = connection
@@ -109,11 +118,17 @@ async def connect_to_server(
     app_state.alert_service = alert_service
     app_state.topic_hz_monitor = topic_hz_monitor
     app_state.history_store = history_store
+    app_state.log_collector = log_collector
 
 
 async def disconnect_server() -> None:
     """Disconnect from current server and cleanup services."""
     global app_state
+
+    # Stop log collector first (it feeds history_store and alert_service)
+    if app_state.log_collector:
+        await app_state.log_collector.stop()
+        app_state.log_collector = None
 
     # Stop history store
     if app_state.history_store:
@@ -201,6 +216,8 @@ async def lifespan(app: FastAPI):
     app_state.is_shutting_down = True
     if auto_connect_task and not auto_connect_task.done():
         auto_connect_task.cancel()
+    if app_state.log_collector:
+        await app_state.log_collector.stop()
     if app_state.history_store:
         await app_state.history_store.close()
     if app_state.topic_hz_monitor:

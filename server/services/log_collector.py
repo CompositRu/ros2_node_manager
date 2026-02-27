@@ -1,9 +1,9 @@
-"""Log collector service for streaming ROS2 logs."""
+"""Log collector service — single /rosout stream for all consumers."""
 
 import asyncio
 import re
 from datetime import datetime
-from typing import AsyncIterator, Optional
+from typing import Optional, Callable
 from collections import defaultdict
 
 from ..connection import BaseConnection, ConnectionError
@@ -12,43 +12,45 @@ from ..models import LogMessage
 
 class LogCollector:
     """
-    Collects logs from /rosout topic and streams to subscribers.
-    
-    Uses: ros2 topic echo /rosout --no-arr
-    Then filters by node name.
+    Single background stream from /rosout that fans out to all consumers.
+
+    Consumers:
+    - subscribe_all(queue)  — WebSocket /ws/logs/all clients
+    - subscribe(node, queue) — WebSocket /ws/logs/{node} clients
+    - add_callback(fn)      — HistoryStore, AlertService (sync callbacks)
     """
-    
+
     def __init__(self, connection: BaseConnection):
         self.conn = connection
         self._running = False
         self._task: Optional[asyncio.Task] = None
+
+        # Queue-based subscribers (for WebSocket clients)
         self._subscribers: dict[str, set[asyncio.Queue]] = defaultdict(set)
         self._all_subscribers: set[asyncio.Queue] = set()
-        
-        # Regex to parse rosout messages
-        # Format varies, but typically contains:
-        # stamp: {sec: X, nanosec: Y}
-        # level: N (where 10=DEBUG, 20=INFO, 30=WARN, 40=ERROR, 50=FATAL)
-        # name: '/node_name'
-        # msg: 'message'
+
+        # Callback subscribers (for HistoryStore, AlertService)
+        self._callbacks: list[Callable[[LogMessage], None]] = []
+
+        # Parsing
         self._level_map = {
             10: "DEBUG",
             20: "INFO",
             30: "WARN",
             40: "ERROR",
-            50: "FATAL"
+            50: "FATAL",
         }
-    
+
     async def start(self) -> None:
-        """Start collecting logs."""
+        """Start the background /rosout stream."""
         if self._running:
             return
-        
         self._running = True
         self._task = asyncio.create_task(self._collect_loop())
-    
+        print("📋 Log collector started (single /rosout stream)")
+
     async def stop(self) -> None:
-        """Stop collecting logs."""
+        """Stop the background stream."""
         self._running = False
         if self._task:
             self._task.cancel()
@@ -57,245 +59,147 @@ class LogCollector:
             except asyncio.CancelledError:
                 pass
             self._task = None
-    
+        self._callbacks.clear()
+        self._all_subscribers.clear()
+        self._subscribers.clear()
+        print("📋 Log collector stopped")
+
+    # ─────────────────────────────────────────────────────────────────
+    # Queue-based subscriptions (for WebSocket endpoints)
+    # ─────────────────────────────────────────────────────────────────
+
     def subscribe(self, node_name: str, queue: asyncio.Queue) -> None:
         """Subscribe to logs for a specific node."""
         self._subscribers[node_name].add(queue)
-    
+
     def unsubscribe(self, node_name: str, queue: asyncio.Queue) -> None:
-        """Unsubscribe from logs."""
+        """Unsubscribe from node-specific logs."""
         self._subscribers[node_name].discard(queue)
         if not self._subscribers[node_name]:
             del self._subscribers[node_name]
-    
+
     def subscribe_all(self, queue: asyncio.Queue) -> None:
         """Subscribe to all logs."""
         self._all_subscribers.add(queue)
-    
+
     def unsubscribe_all(self, queue: asyncio.Queue) -> None:
         """Unsubscribe from all logs."""
         self._all_subscribers.discard(queue)
-    
+
+    # ─────────────────────────────────────────────────────────────────
+    # Callback subscriptions (for services: HistoryStore, AlertService)
+    # ─────────────────────────────────────────────────────────────────
+
+    def add_callback(self, fn: Callable[[LogMessage], None]) -> None:
+        """Register a callback invoked for every log message."""
+        self._callbacks.append(fn)
+
+    def remove_callback(self, fn: Callable[[LogMessage], None]) -> None:
+        """Remove a previously registered callback."""
+        try:
+            self._callbacks.remove(fn)
+        except ValueError:
+            pass
+
+    # ─────────────────────────────────────────────────────────────────
+    # Background stream
+    # ─────────────────────────────────────────────────────────────────
+
     async def _collect_loop(self) -> None:
-        """Main loop for collecting logs."""
+        """Main loop: always streams /rosout, dispatches to all consumers."""
+        cmd = "ros2 topic echo /rosout --no-arr --qos-reliability best_effort --qos-history keep_last --qos-depth 1000"
+
         while self._running:
             try:
-                # Only collect if there are subscribers
-                if not self._subscribers and not self._all_subscribers:
-                    await asyncio.sleep(1)
-                    continue
-                
-                # Stream logs from /rosout
-                cmd = "ros2 topic echo /rosout --no-arr"
-                
                 buffer = []
                 async for line in self.conn.exec_stream(cmd):
                     if not self._running:
                         break
-                    
-                    # Accumulate lines until we have a complete message
+
                     buffer.append(line)
-                    
-                    # Check if we have a complete message (ends with ---)
+
                     if line.strip() == "---":
                         msg = self._parse_rosout_message("\n".join(buffer))
                         buffer = []
-                        
                         if msg:
-                            await self._dispatch_message(msg)
-                
+                            self._dispatch(msg)
+
             except ConnectionError as e:
                 print(f"Log collector connection error: {e}")
-                await asyncio.sleep(5)  # Wait before retry
+                if self._running:
+                    await asyncio.sleep(5)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 print(f"Log collector error: {e}")
-                await asyncio.sleep(5)
-    
-    def _parse_rosout_message(self, text: str) -> Optional[LogMessage]:
-        """Parse a rosout message from ros2 topic echo output."""
-        try:
-            # Extract fields using regex
-            # stamp
-            stamp_match = re.search(r"sec:\s*(\d+)", text)
-            nanosec_match = re.search(r"nanosec:\s*(\d+)", text)
-            
-            # level
-            level_match = re.search(r"level:\s*(\d+)", text)
-            
-            # name (node name)
-            name_match = re.search(r"name:\s*['\"]?([^'\"}\n]+)['\"]?", text)
-            
-            # msg
-            msg_match = (
-                re.search(r"msg:\s*'([^']*)'", text) or
-                re.search(r'msg:\s*"([^"]*)"', text) or
-                re.search(r"msg:\s*([^\n]+)", text)
-            )
+                if self._running:
+                    await asyncio.sleep(5)
 
-            if not all([stamp_match, level_match, name_match, msg_match]):
-                return None
-            
-            # Build timestamp
-            sec = int(stamp_match.group(1))
-            nanosec = int(nanosec_match.group(1)) if nanosec_match else 0
-            timestamp = datetime.fromtimestamp(sec + nanosec / 1e9)
-            
-            # Get level
-            level_num = int(level_match.group(1))
-            level = self._level_map.get(level_num, "INFO")
-            
-            # Get node name
-            node_name = name_match.group(1).strip()
-            
-            # Get message
-            message = msg_match.group(1).strip()
-            
-            return LogMessage(
-                timestamp=timestamp,
-                level=level,
-                node_name=node_name,
-                message=message
-            )
-        except Exception:
-            return None
-    
-    async def _dispatch_message(self, msg: LogMessage) -> None:
-        """Dispatch log message to subscribers."""
-        # Send to node-specific subscribers
-        if msg.node_name in self._subscribers:
-            for queue in self._subscribers[msg.node_name]:
-                try:
-                    queue.put_nowait(msg)
-                except asyncio.QueueFull:
-                    pass  # Drop message if queue is full
-        
-        # Send to all-subscribers
+    # ─────────────────────────────────────────────────────────────────
+    # Dispatch
+    # ─────────────────────────────────────────────────────────────────
+
+    def _dispatch(self, msg: LogMessage) -> None:
+        """Fan out a log message to all consumers."""
+        # 1. Callbacks (HistoryStore, AlertService)
+        for cb in self._callbacks:
+            try:
+                cb(msg)
+            except Exception as e:
+                print(f"Log callback error: {e}")
+
+        # 2. All-subscribers (WebSocket /ws/logs/all)
         for queue in self._all_subscribers:
             try:
                 queue.put_nowait(msg)
             except asyncio.QueueFull:
-                pass
+                pass  # drop: client is slow
 
+        # 3. Node-specific subscribers (WebSocket /ws/logs/{node})
+        #    Match by full name and by short name (last segment)
+        if self._subscribers:
+            short_name = msg.node_name.rsplit("/", 1)[-1] if "/" in msg.node_name else msg.node_name
+            for sub_name, queues in self._subscribers.items():
+                sub_short = sub_name.rsplit("/", 1)[-1] if "/" in sub_name else sub_name
+                if msg.node_name == sub_name or short_name == sub_short:
+                    for queue in queues:
+                        try:
+                            queue.put_nowait(msg)
+                        except asyncio.QueueFull:
+                            pass
 
-async def stream_node_logs(
-    connection: BaseConnection,
-    node_name: str
-) -> AsyncIterator[LogMessage]:
-    """
-    Simple generator to stream logs for a specific node.
-    Uses grep filtering instead of LogCollector.
-    """
-    import re
-    
-    # Extract short name for grep (last part of node name)
-    short_name = node_name.split("/")[-1]
-    
-    # cmd = f"ros2 topic echo /rosout --no-arr"
+    # ─────────────────────────────────────────────────────────────────
+    # Parsing
+    # ─────────────────────────────────────────────────────────────────
 
-    # stdbuf -oL отключает буферизацию stdout (line-buffered)
-    # cmd = f"stdbuf -oL ros2 topic echo /rosout --no-arr"
+    def _parse_rosout_message(self, text: str) -> Optional[LogMessage]:
+        """Parse a rosout YAML message into LogMessage."""
+        try:
+            stamp_match = re.search(r"sec:\s*(\d+)", text)
+            nanosec_match = re.search(r"nanosec:\s*(\d+)", text)
+            level_match = re.search(r"level:\s*(\d+)", text)
+            name_match = re.search(r"name:\s*['\"]?([^'\"}\n]+)['\"]?", text)
+            msg_match = (
+                re.search(r"msg:\s*'([^']*)'", text)
+                or re.search(r'msg:\s*"([^"]*)"', text)
+                or re.search(r"msg:\s*([^\n]+)", text)
+            )
 
-    # QoS параметры для получения всех сообщений
-    cmd = "ros2 topic echo /rosout --no-arr --qos-reliability best_effort --qos-history keep_last --qos-depth 1000"
-    
-    buffer = []
-    level_map = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
-    
-    try:
-        line_count = 0
-        async for line in connection.exec_stream(cmd):
-            line_count += 1
-            if line_count <= 3:
-                print(f"DEBUG stream_node_logs: line {line_count}: {line[:100]}")
-            buffer.append(line)
-            
-            # Check for message boundary
-            if line.strip() == "---":
-                text = "\n".join(buffer)
-                buffer = []
-                
-                # Check if this message is for our node
-                if short_name not in text and node_name not in text:
-                    continue
-                
-                # Parse message
-                try:
-                    stamp_match = re.search(r"sec:\s*(\d+)", text)
-                    level_match = re.search(r"level:\s*(\d+)", text)
-                    msg_match = (
-                        re.search(r"msg:\s*'([^']*)'", text) or
-                        re.search(r'msg:\s*"([^"]*)"', text) or
-                        re.search(r"msg:\s*([^\n]+)", text)
-                    )
-                    
-                    if stamp_match and level_match and msg_match:
-                        sec = int(stamp_match.group(1))
-                        timestamp = datetime.fromtimestamp(sec)
-                        level = level_map.get(int(level_match.group(1)), "INFO")
-                        message = msg_match.group(1).strip()
-                        
-                        yield LogMessage(
-                            timestamp=timestamp,
-                            level=level,
-                            node_name=node_name,
-                            message=message
-                        )
-                except Exception:
-                    pass
-    except Exception as e:
-        import traceback
-        print(f"Log stream error for {node_name}: {e}")
-        traceback.print_exc()
+            if not all([stamp_match, level_match, name_match, msg_match]):
+                return None
 
+            sec = int(stamp_match.group(1))
+            nanosec = int(nanosec_match.group(1)) if nanosec_match else 0
+            timestamp = datetime.fromtimestamp(sec + nanosec / 1e9)
+            level = self._level_map.get(int(level_match.group(1)), "INFO")
+            node_name = name_match.group(1).strip()
+            message = msg_match.group(1).strip()
 
-async def stream_all_logs(
-    connection: BaseConnection,
-) -> AsyncIterator[LogMessage]:
-    """
-    Generator to stream ALL logs from /rosout (no node filtering).
-    Each LogMessage includes the originating node_name.
-    """
-    cmd = "ros2 topic echo /rosout --no-arr --qos-reliability best_effort --qos-history keep_last --qos-depth 1000"
-
-    buffer = []
-    level_map = {10: "DEBUG", 20: "INFO", 30: "WARN", 40: "ERROR", 50: "FATAL"}
-
-    try:
-        async for line in connection.exec_stream(cmd):
-            buffer.append(line)
-
-            if line.strip() == "---":
-                text = "\n".join(buffer)
-                buffer = []
-
-                try:
-                    stamp_match = re.search(r"sec:\s*(\d+)", text)
-                    level_match = re.search(r"level:\s*(\d+)", text)
-                    name_match = re.search(r"name:\s*['\"]?([^'\"}\n]+)['\"]?", text)
-                    msg_match = (
-                        re.search(r"msg:\s*'([^']*)'", text) or
-                        re.search(r'msg:\s*"([^"]*)"', text) or
-                        re.search(r"msg:\s*([^\n]+)", text)
-                    )
-
-                    if stamp_match and level_match and msg_match and name_match:
-                        sec = int(stamp_match.group(1))
-                        timestamp = datetime.fromtimestamp(sec)
-                        level = level_map.get(int(level_match.group(1)), "INFO")
-                        node_name = name_match.group(1).strip()
-                        message = msg_match.group(1).strip()
-
-                        yield LogMessage(
-                            timestamp=timestamp,
-                            level=level,
-                            node_name=node_name,
-                            message=message,
-                        )
-                except Exception:
-                    pass
-    except Exception as e:
-        import traceback
-        print(f"All-logs stream error: {e}")
-        traceback.print_exc()
+            return LogMessage(
+                timestamp=timestamp,
+                level=level,
+                node_name=node_name,
+                message=message,
+            )
+        except Exception:
+            return None

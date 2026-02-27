@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import NodeStatus
-from ..services import stream_node_logs, stream_all_logs, stream_diagnostics, stream_bool_topic, stream_group_echo
+from ..services import stream_diagnostics, stream_bool_topic, stream_group_echo
 from ..services.metrics import metrics
 from ..connection import ContainerNotFoundError
 from ..config import load_topic_groups_config
@@ -151,13 +151,13 @@ async def diagnostics_websocket(websocket: WebSocket):
 
 @router.websocket("/ws/logs/all")
 async def all_logs_websocket(websocket: WebSocket):
-    """WebSocket for streaming ALL logs (unified stream)."""
+    """WebSocket for streaming ALL logs (unified stream via LogCollector)."""
     from ..main import app_state
 
     await websocket.accept()
     metrics.ws_connect("log_all")
 
-    if not app_state.connection or not app_state.connection.connected:
+    if not app_state.log_collector:
         await websocket.send_json({
             "type": "error",
             "message": "Not connected to server"
@@ -166,13 +166,17 @@ async def all_logs_websocket(websocket: WebSocket):
         metrics.ws_disconnect("log_all")
         return
 
+    queue = asyncio.Queue(maxsize=1000)
+    app_state.log_collector.subscribe_all(queue)
+
     try:
         await websocket.send_json({
             "type": "connected",
             "message": "Streaming all logs"
         })
 
-        async for log_msg in stream_all_logs(app_state.connection):
+        while True:
+            log_msg = await queue.get()
             await websocket.send_json({
                 "type": "log",
                 "timestamp": log_msg.timestamp.isoformat(),
@@ -190,16 +194,16 @@ async def all_logs_websocket(websocket: WebSocket):
         except:
             pass
     finally:
+        if app_state.log_collector:
+            app_state.log_collector.unsubscribe_all(queue)
         metrics.ws_disconnect("log_all")
 
 
 @router.websocket("/ws/logs/{node_name:path}")
 async def node_logs_websocket(websocket: WebSocket, node_name: str):
-    """
-    WebSocket for streaming logs of a specific node.
-    """
+    """WebSocket for streaming logs of a specific node (via LogCollector)."""
     from ..main import app_state
-    
+
     await websocket.accept()
     metrics.ws_connect("log")
 
@@ -207,9 +211,7 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
     if not node_name.startswith("/"):
         node_name = "/" + node_name
 
-    print(f"DEBUG: Logs WebSocket opened for {node_name}")
-
-    if not app_state.connection or not app_state.connection.connected:
+    if not app_state.log_collector:
         await websocket.send_json({
             "type": "error",
             "message": "Not connected to server"
@@ -218,18 +220,17 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
         metrics.ws_disconnect("log")
         return
 
+    queue = asyncio.Queue(maxsize=1000)
+    app_state.log_collector.subscribe(node_name, queue)
+
     try:
-        # Send initial message
         await websocket.send_json({
             "type": "connected",
             "message": f"Streaming logs for {node_name}"
         })
 
-        print(f"DEBUG: Starting log stream for {node_name}")
-
-        # Stream logs
-        async for log_msg in stream_node_logs(app_state.connection, node_name):
-            print(f"DEBUG: Got log message: {log_msg.message[:50]}...")
+        while True:
+            log_msg = await queue.get()
             await websocket.send_json({
                 "type": "log",
                 "timestamp": log_msg.timestamp.isoformat(),
@@ -238,11 +239,9 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
             })
 
     except WebSocketDisconnect:
-        print(f"DEBUG: WebSocket disconnected for {node_name}")
+        pass
     except Exception as e:
-        print(f"DEBUG: WebSocket error for {node_name}: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"Node logs WebSocket error for {node_name}: {e}")
         try:
             await websocket.send_json({
                 "type": "error",
@@ -251,6 +250,8 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
         except:
             pass
     finally:
+        if app_state.log_collector:
+            app_state.log_collector.unsubscribe(node_name, queue)
         metrics.ws_disconnect("log")
 
 @router.websocket("/ws/alerts")

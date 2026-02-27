@@ -7,7 +7,7 @@ from typing import AsyncIterator, Optional, Callable, Set, Dict
 import uuid
 
 from ..connection import BaseConnection
-from ..models import Alert, AlertType, AlertSeverity, AlertConfig, NodeStatus
+from ..models import Alert, AlertType, AlertSeverity, AlertConfig, NodeStatus, LogMessage
 
 
 class AlertService:
@@ -39,9 +39,21 @@ class AlertService:
         
         # Known missing topics (для отслеживания восстановления)
         self._missing_topics: Set[str] = set()
-        
+
         # History persistence (set externally after init)
         self.history_store = None
+
+        # Pre-compile error patterns for on_log_message callback
+        self._compiled_patterns: list[tuple[re.Pattern, str]] = []
+        if self.config.error_patterns:
+            for p in self.config.error_patterns:
+                try:
+                    self._compiled_patterns.append((
+                        re.compile(p["pattern"], re.IGNORECASE),
+                        p.get("severity", "error")
+                    ))
+                except re.error as e:
+                    print(f"Invalid regex pattern '{p['pattern']}': {e}")
 
         # Running state
         self._running = False
@@ -57,10 +69,11 @@ class AlertService:
         print("🔔 Alert service starting...")
 
         # Start monitoring tasks
+        # Note: rosout pattern matching is now handled by on_log_message() callback
+        # registered with LogCollector (single /rosout stream)
         self._tasks = [
             asyncio.create_task(self._monitor_nodes_loop()),
             asyncio.create_task(self._monitor_missing_topics()),
-            asyncio.create_task(self._monitor_rosout_patterns()),
             asyncio.create_task(self._monitor_topic_values()),
         ]
         
@@ -143,6 +156,36 @@ class AlertService:
                 details={"node_name": node_name},
                 cooldown_key=f"node_recovered:{node_name}"
             )
+
+    # ─────────────────────────────────────────────────────────────────
+    # Callback from LogCollector (sync, called for every log message)
+    # ─────────────────────────────────────────────────────────────────
+
+    def on_log_message(self, log_msg: LogMessage) -> None:
+        """Called by LogCollector for every /rosout message. Checks error patterns."""
+        if not self._compiled_patterns:
+            return
+
+        msg = log_msg.message
+        node_name = log_msg.node_name
+
+        for pattern, severity in self._compiled_patterns:
+            if pattern.search(msg):
+                display_msg = msg[:150] + "..." if len(msg) > 150 else msg
+
+                self._emit_alert(
+                    alert_type=AlertType.ERROR_PATTERN,
+                    severity=AlertSeverity(severity),
+                    title="Ошибка в логах",
+                    message=f"[{node_name}] {display_msg}",
+                    details={
+                        "node_name": node_name,
+                        "pattern": pattern.pattern,
+                        "full_message": msg
+                    },
+                    cooldown_key=f"error_pattern:{pattern.pattern}:{node_name}"
+                )
+                break  # Only one alert per message
 
     # ─────────────────────────────────────────────────────────────────
     # Internal: Alert emission with deduplication
@@ -292,75 +335,6 @@ class AlertService:
             except Exception as e:
                 print(f"Error monitoring topics: {e}")
                 await asyncio.sleep(10)
-
-    async def _monitor_rosout_patterns(self) -> None:
-        """Monitor /rosout for error patterns."""
-        if not self.config.error_patterns:
-            return
-
-        # Compile patterns
-        compiled_patterns = []
-        for p in self.config.error_patterns:
-            try:
-                compiled_patterns.append((
-                    re.compile(p["pattern"], re.IGNORECASE),
-                    p.get("severity", "error")
-                ))
-            except re.error as e:
-                print(f"Invalid regex pattern '{p['pattern']}': {e}")
-
-        if not compiled_patterns:
-            return
-
-        cmd = "ros2 topic echo /rosout --no-arr --qos-reliability best_effort --qos-history keep_last --qos-depth 100"
-        buffer = []
-
-        while self._running:
-            try:
-                async for line in self.conn.exec_stream(cmd):
-                    if not self._running:
-                        break
-
-                    buffer.append(line)
-
-                    # Message separator
-                    if line.strip() == "---":
-                        text = "\n".join(buffer)
-                        buffer = []
-
-                        # Extract message and node name
-                        msg_match = re.search(r"msg:\s*['\"]?([^'\"}\n]*)", text)
-                        name_match = re.search(r"name:\s*['\"]?([^'\"}\n]+)", text)
-
-                        if msg_match:
-                            msg = msg_match.group(1).strip()
-                            node_name = name_match.group(1).strip() if name_match else "unknown"
-
-                            # Check against patterns
-                            for pattern, severity in compiled_patterns:
-                                if pattern.search(msg):
-                                    # Truncate long messages
-                                    display_msg = msg[:150] + "..." if len(msg) > 150 else msg
-                                    
-                                    self._emit_alert(
-                                        alert_type=AlertType.ERROR_PATTERN,
-                                        severity=AlertSeverity(severity),
-                                        title=f"Ошибка в логах",
-                                        message=f"[{node_name}] {display_msg}",
-                                        details={
-                                            "node_name": node_name,
-                                            "pattern": pattern.pattern,
-                                            "full_message": msg
-                                        },
-                                        cooldown_key=f"error_pattern:{pattern.pattern}:{node_name}"
-                                    )
-                                    break  # Only one alert per message
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                print(f"Error monitoring rosout: {e}")
-                await asyncio.sleep(5)
 
     async def _monitor_topic_values(self) -> None:
         """Monitor specific topics for alert values."""

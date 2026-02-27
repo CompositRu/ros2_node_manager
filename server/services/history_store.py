@@ -8,9 +8,7 @@ from typing import Optional
 
 import aiosqlite
 
-from ..connection import BaseConnection
 from ..models import LogMessage, Alert
-from .log_collector import stream_all_logs
 
 
 # Retention limits
@@ -40,12 +38,10 @@ class HistoryStore:
         self._min_level_priority = LOG_LEVEL_PRIORITY.get(self.min_log_level, 2)
         self._db: Optional[aiosqlite.Connection] = None
         self._running = False
-        self._log_task: Optional[asyncio.Task] = None
         self._flush_task: Optional[asyncio.Task] = None
 
         # Batched log writes
         self._log_buffer: list[LogMessage] = []
-        self._log_buffer_lock = asyncio.Lock()
 
         # Retention counters
         self._log_insert_count = 0
@@ -86,19 +82,12 @@ class HistoryStore:
         """)
         await self._db.commit()
         self._running = True
+        self._flush_task = asyncio.create_task(self._periodic_flush())
         print(f"📦 History store initialized: {self.db_path} (min_log_level={self.min_log_level})")
 
     async def close(self) -> None:
         """Stop background tasks and close DB."""
         self._running = False
-
-        if self._log_task and not self._log_task.done():
-            self._log_task.cancel()
-            try:
-                await self._log_task
-            except asyncio.CancelledError:
-                pass
-            self._log_task = None
 
         if self._flush_task and not self._flush_task.done():
             self._flush_task.cancel()
@@ -117,46 +106,25 @@ class HistoryStore:
         print("📦 History store closed")
 
     # ─────────────────────────────────────────────────────────────────
-    # Background log collector
+    # Callback from LogCollector (sync, called for every log message)
     # ─────────────────────────────────────────────────────────────────
 
-    async def start_log_collector(self, connection: BaseConnection) -> None:
-        """Start background task that streams /rosout and persists all logs."""
-        self._log_task = asyncio.create_task(self._collect_logs(connection))
-        self._flush_task = asyncio.create_task(self._periodic_flush())
-
-    def _should_persist_log(self, log_msg: LogMessage) -> bool:
-        """Check if log level meets minimum threshold."""
+    def on_log_message(self, log_msg: LogMessage) -> None:
+        """Called by LogCollector for every /rosout message. Filters and buffers."""
         level_priority = LOG_LEVEL_PRIORITY.get(log_msg.level.upper(), 1)
-        return level_priority >= self._min_level_priority
+        if level_priority < self._min_level_priority:
+            return
 
-    async def _collect_logs(self, connection: BaseConnection) -> None:
-        """Stream /rosout and buffer logs for batch insert (filtered by min_log_level)."""
-        while self._running:
-            try:
-                async for log_msg in stream_all_logs(connection):
-                    if not self._running:
-                        break
-                    if not self._should_persist_log(log_msg):
-                        continue
-                    async with self._log_buffer_lock:
-                        self._log_buffer.append(log_msg)
-                        if len(self._log_buffer) >= LOG_FLUSH_BATCH:
-                            await self._flush_log_buffer()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                print(f"History log collector error: {e}")
-                if self._running:
-                    await asyncio.sleep(5)
+        self._log_buffer.append(log_msg)
+        if len(self._log_buffer) >= LOG_FLUSH_BATCH:
+            asyncio.ensure_future(self._flush_log_buffer())
 
     async def _periodic_flush(self) -> None:
         """Flush log buffer periodically."""
         while self._running:
             try:
                 await asyncio.sleep(LOG_FLUSH_INTERVAL)
-                async with self._log_buffer_lock:
-                    await self._flush_log_buffer()
+                await self._flush_log_buffer()
             except asyncio.CancelledError:
                 break
             except Exception as e:
