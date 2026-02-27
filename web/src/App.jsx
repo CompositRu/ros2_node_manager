@@ -13,6 +13,7 @@ import { AppStats } from './components/AppStats';
 import { UnifiedLogs } from './components/UnifiedLogs';
 import { Diagnostics } from './components/Diagnostics';
 import { Topics } from './components/Topics';
+import { History } from './components/History';
 
 // Min/max constraints
 const MIN_TREE_WIDTH = 200;
@@ -208,6 +209,13 @@ function App() {
           </div>
         )}
 
+        {/* History Section */}
+        {activeSection === 'history' && (
+          <div className="flex-1 overflow-hidden">
+            <History connected={server.connected} />
+          </div>
+        )}
+
         {/* App Stats Section */}
         {activeSection === 'stats' && (
           <div className="flex-1 overflow-hidden">
@@ -219,7 +227,7 @@ function App() {
       {/* Footer */}
       <footer className="px-4 py-2 border-t border-gray-700 bg-gray-800 text-xs text-gray-500 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <span>Tram Monitoring System v0.4.0</span>
+          <span>Tram Monitoring System v0.6.0</span>
           {server.error && (
             <span className="text-red-400">Error: {server.error}</span>
           )}

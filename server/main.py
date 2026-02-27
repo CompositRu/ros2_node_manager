@@ -15,9 +15,9 @@ from .models import ServerConfig, ServerType
 from .connection import BaseConnection, LocalDockerConnection, SSHDockerConnection, ConnectionError, ContainerNotFoundError
 from .state import StatePersister
 # from .services import NodeServicee
-from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router
+from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router, history_router
 from .config import settings, load_servers_config, get_server_by_id, load_alert_config, load_topic_groups_config
-from .services import NodeService, AlertService, TopicHzMonitor
+from .services import NodeService, AlertService, TopicHzMonitor, HistoryStore
 from fastapi.responses import FileResponse, JSONResponse
 
 
@@ -30,6 +30,7 @@ class AppState:
     persister: Optional[StatePersister] = None
     alert_service: Optional[AlertService] = None
     topic_hz_monitor: Optional[TopicHzMonitor] = None
+    history_store: Optional[HistoryStore] = None
     is_shutting_down: bool = False
 
 
@@ -46,6 +47,9 @@ async def connect_to_server(
     global app_state
     
     # Stop previous services if running
+    if app_state.history_store:
+        await app_state.history_store.close()
+        app_state.history_store = None
     if app_state.topic_hz_monitor:
         await app_state.topic_hz_monitor.stop()
         app_state.topic_hz_monitor = None
@@ -91,6 +95,12 @@ async def connect_to_server(
     topic_groups_config = load_topic_groups_config()
     topic_hz_monitor = TopicHzMonitor(connection, topic_groups_config.topic_groups)
 
+    # Initialize history store (persistent log/alert storage)
+    history_store = HistoryStore(server.id, settings.data_dir)
+    await history_store.initialize()
+    await history_store.start_log_collector(connection)
+    alert_service.history_store = history_store
+
     # Update state
     app_state.connection = connection
     app_state.current_server_id = server.id
@@ -98,11 +108,17 @@ async def connect_to_server(
     app_state.node_service = node_service
     app_state.alert_service = alert_service
     app_state.topic_hz_monitor = topic_hz_monitor
+    app_state.history_store = history_store
 
 
 async def disconnect_server() -> None:
     """Disconnect from current server and cleanup services."""
     global app_state
+
+    # Stop history store
+    if app_state.history_store:
+        await app_state.history_store.close()
+        app_state.history_store = None
 
     # Stop topic hz monitor
     if app_state.topic_hz_monitor:
@@ -185,6 +201,8 @@ async def lifespan(app: FastAPI):
     app_state.is_shutting_down = True
     if auto_connect_task and not auto_connect_task.done():
         auto_connect_task.cancel()
+    if app_state.history_store:
+        await app_state.history_store.close()
     if app_state.topic_hz_monitor:
         await app_state.topic_hz_monitor.stop()
     if app_state.alert_service:
@@ -216,6 +234,7 @@ app.include_router(nodes_router)
 app.include_router(websocket_router)
 app.include_router(debug_router)
 app.include_router(topics_router)
+app.include_router(history_router)
 
 
 # Serve static files (React build)

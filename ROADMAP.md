@@ -143,12 +143,17 @@ Dashboard-сетка диагностик из /diagnostics топика.
 
 ---
 
-## 🚧 v0.6 — Log History + Alert History
+## ✅ v0.6 — Log History + Alert History
 
-- [ ] Просмотр истории alert-уведомлений
-- [ ] Фильтрация алертов по типу, ноде, времени
-- [ ] Сохранение логов в файл (экспорт)
-- [ ] Поиск по логам
+- [x] Секция History в Activity Bar (иконка часов)
+- [x] Persistent хранение логов и алертов в SQLite (`data/history_{server_id}.db`)
+- [x] Фоновый сбор логов из /rosout (независимо от WebSocket клиентов)
+- [x] REST API: `/api/history/logs`, `/api/history/alerts`, `/api/history/stats`
+- [x] Просмотр истории логов с фильтрацией по уровню, ноде, поиску по тексту
+- [x] Просмотр истории alert-уведомлений с фильтрацией по типу, severity, ноде
+- [x] Пагинация (Prev/Next)
+- [x] Сохранение логов в файл (экспорт JSON/Text)
+- [x] Retention: автоочистка старых записей (50k логов / 10k алертов)
 
 ---
 

@@ -115,3 +115,34 @@ export async function toggleGroupHz(groupId) {
 export async function getStats() {
   return request('/debug/stats');
 }
+
+// === History API ===
+
+export async function getLogHistory(params = {}) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && value !== '') query.set(key, value);
+  }
+  return request(`/history/logs?${query.toString()}`);
+}
+
+export async function getAlertHistory(params = {}) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value != null && value !== '') query.set(key, value);
+  }
+  return request(`/history/alerts?${query.toString()}`);
+}
+
+export async function getHistoryStats() {
+  return request('/history/stats');
+}
+
+export function getLogExportUrl(params = {}) {
+  const query = new URLSearchParams();
+  query.set('format', params.format || 'json');
+  for (const [key, value] of Object.entries(params)) {
+    if (key !== 'format' && value != null && value !== '') query.set(key, value);
+  }
+  return `${API_BASE}/history/logs/export?${query.toString()}`;
+}

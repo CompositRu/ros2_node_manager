@@ -19,8 +19,9 @@ web/dist/
 *.swp
 *.swo
 
-# Data (state files)
+# Data (state files, history DB)
 data/*.json
+data/*.db
 
 # OS
 .DS_Store

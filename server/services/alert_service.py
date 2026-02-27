@@ -40,6 +40,9 @@ class AlertService:
         # Known missing topics (для отслеживания восстановления)
         self._missing_topics: Set[str] = set()
         
+        # History persistence (set externally after init)
+        self.history_store = None
+
         # Running state
         self._running = False
         self._tasks: list[asyncio.Task] = []
@@ -176,6 +179,13 @@ class AlertService:
             message=message,
             details=details or {}
         )
+
+        # Persist to history store
+        if self.history_store:
+            try:
+                asyncio.ensure_future(self.history_store.store_alert(alert))
+            except Exception as e:
+                print(f"Failed to persist alert: {e}")
 
         # Add to queue (for WebSocket async iterator)
         try:
