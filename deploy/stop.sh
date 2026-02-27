@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# ROS2 Node Manager - Stop Script
+# Tram Monitoring System - Stop Script
 #
 # Stops the background ros2-monitor process.
 #

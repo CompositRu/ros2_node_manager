@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# ROS2 Node Manager - Remote Start Script
+# Tram Monitoring System - Remote Start Script
 #
 # Starts ros2-monitor on a remote server via SSH.
 #

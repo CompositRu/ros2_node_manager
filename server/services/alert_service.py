@@ -1,4 +1,4 @@
-"""Alert monitoring service for ROS2 Node Manager."""
+"""Alert monitoring service for Tram Monitoring System."""
 
 import asyncio
 import re

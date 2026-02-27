@@ -1,4 +1,4 @@
-# ROS2 Node Manager - Production Deployment
+# Tram Monitoring System - Production Deployment
 
 ## Структура на целевом устройстве
 
@@ -196,5 +196,5 @@ done
 
 Для изменения версии отредактируйте `web/src/App.jsx`:
 ```jsx
-<span>ROS2 Node Manager v1.0.0</span>
+<span>Tram Monitoring System v1.0.0</span>
 ```

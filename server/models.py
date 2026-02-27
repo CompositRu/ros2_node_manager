@@ -1,4 +1,4 @@
-"""Pydantic models for ROS2 Node Manager."""
+"""Pydantic models for Tram Monitoring System."""
 
 from datetime import datetime, timedelta
 from enum import Enum

@@ -53,7 +53,7 @@ async def serve_spa(request: Request, full_path: str):
     if not index_file.exists():
         return JSONResponse(
             status_code=200,
-            content={"message": "ROS2 Node Manager API", "docs": "/docs", "mode": "development"}
+            content={"message": "Tram Monitoring System API", "docs": "/docs", "mode": "development"}
         )
     
     # Try to serve the exact file first

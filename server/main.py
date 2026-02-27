@@ -1,4 +1,4 @@
-"""ROS2 Node Manager - Main Application."""
+"""Tram Monitoring System - Main Application."""
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -159,7 +159,7 @@ async def lifespan(app: FastAPI):
     import asyncio
 
     # Startup
-    print("🚀 ROS2 Node Manager starting...")
+    print("🚀 Tram Monitoring System starting...")
 
     # Ensure data directory exists
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -195,7 +195,7 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="ROS2 Node Manager",
+    title="Tram Monitoring System",
     description="Web interface for managing ROS2 nodes in Docker containers",
     version="0.1.0",
     lifespan=lifespan
@@ -284,7 +284,7 @@ async def serve_spa(request: Request, full_path: str):
     if not index_file.exists():
         return JSONResponse(
             status_code=200,
-            content={"message": "ROS2 Node Manager API", "docs": "/docs", "mode": "development"}
+            content={"message": "Tram Monitoring System API", "docs": "/docs", "mode": "development"}
         )
     
     # Try to serve the exact file first

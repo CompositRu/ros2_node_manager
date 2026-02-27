@@ -1,4 +1,4 @@
-"""Configuration loader for ROS2 Node Manager."""
+"""Configuration loader for Tram Monitoring System."""
 
 import os
 from pathlib import Path

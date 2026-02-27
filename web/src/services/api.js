@@ -1,5 +1,5 @@
 /**
- * API client for ROS2 Node Manager
+ * API client for Tram Monitoring System
  */
 
 const API_BASE = '/api';
@@ -95,6 +95,11 @@ export async function groupAction(namespace, action, force = false) {
 
 export async function getTopicList() {
   return request('/topics/list');
+}
+
+export async function getTopicInfo(topicName) {
+  const path = topicName.startsWith('/') ? topicName.slice(1) : topicName;
+  return request(`/topics/info/${path}`);
 }
 
 export async function getTopicGroups() {

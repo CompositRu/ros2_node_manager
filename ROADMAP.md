@@ -1,4 +1,4 @@
-# ROS2 Node Manager — Roadmap
+# Tram Monitoring System — Roadmap
 
 ## UI Architecture: Activity Bar (VS Code style)
 
@@ -132,14 +132,14 @@ Dashboard-сетка диагностик из /diagnostics топика.
 
 ---
 
-## 🚧 v0.5 — Topics
+## ✅ v0.5 — Topics
 
-- [ ] Секция Topics в Activity Bar
-- [ ] Список топиков по namespace (дерево)
-- [ ] Topic Hz (частота сообщений), мониторинг до 5 топиков
-- [ ] Topic Echo с Pause/Resume
-- [ ] Topic Info (тип сообщения, publishers, subscribers)
-- [ ] Фильтрация полей сообщения (показвать только timastemp например)
+- [x] Секция Topics в Activity Bar
+- [x] Список топиков по namespace (дерево)
+- [x] Topic Hz (частота сообщений), мониторинг до 5 топиков
+- [x] Topic Echo с Pause/Resume
+- [x] Topic Info (тип сообщения, publishers, subscribers)
+- [x] Фильтрация полей сообщения (показывать только timestamp например)
 
 ---
 

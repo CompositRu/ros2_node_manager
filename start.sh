@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# ROS2 Node Manager - Local Start Script
+# Tram Monitoring System - Local Start Script
 #
 # Sets up environment, builds frontend, and starts the server.
 # With --fast flag, skips setup and just starts.

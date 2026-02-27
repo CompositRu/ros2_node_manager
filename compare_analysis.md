@@ -1,6 +1,6 @@
-## ROS2 Node Manager — Описание проекта
+## Tram Monitoring System — Описание проекта
 
-**ROS2 Node Manager** — веб-интерфейс для мониторинга и управления ROS2 нодами в Docker контейнерах. Ориентирован на операторов и разработчиков автономных систем (трамваи, роботы) для быстрой диагностики и управления большим количеством нод (~500+).
+**Tram Monitoring System** — веб-интерфейс для мониторинга и управления ROS2 нодами в Docker контейнерах. Ориентирован на операторов и разработчиков автономных систем (трамваи, роботы) для быстрой диагностики и управления большим количеством нод (~500+).
 
 ### Архитектура
 ```
@@ -78,7 +78,7 @@ Browser → FastAPI Backend → docker exec / SSH → ROS2 CLI
 
 ## Сравнение с Foxglove
 
-| Функция | ROS2 Node Manager | Foxglove Studio |
+| Функция | Tram Monitoring System | Foxglove Studio |
 |---------|-------------------|-----------------|
 | **Архитектура** | Web + FastAPI + CLI | Desktop/Web + rosbridge/native |
 | **Подключение** | docker exec / SSH | rosbridge WebSocket / Foxglove Bridge |
@@ -109,7 +109,7 @@ Browser → FastAPI Backend → docker exec / SSH → ROS2 CLI
 
 ## Выводы
 
-### ROS2 Node Manager лучше подходит для:
+### Tram Monitoring System лучше подходит для:
 - **Управления нодами** (lifecycle, kill, групповые операции)
 - **Мониторинга большого количества нод** (~500+)
 - **Быстрой диагностики** без установки доп. пакетов
@@ -124,7 +124,7 @@ Browser → FastAPI Backend → docker exec / SSH → ROS2 CLI
 
 ### Возможная интеграция
 Вместо "или/или" можно использовать **вместе**:
-- ROS2 Node Manager — для управления и мониторинга нод
+- Tram Monitoring System — для управления и мониторинга нод
 - Foxglove — для визуализации данных
 
 Или реализовать недостающий функционал как **Foxglove Extension** (custom panel), но это потребует:

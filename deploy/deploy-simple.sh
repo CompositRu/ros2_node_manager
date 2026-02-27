@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# ROS2 Node Manager - Simple Deployment Script (without systemd)
+# Tram Monitoring System - Simple Deployment Script (without systemd)
 #
 # Usage:
 #   ./deploy-simple.sh <host> [user]

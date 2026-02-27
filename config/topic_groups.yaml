@@ -1,4 +1,4 @@
-# Topic Group Configuration for ROS2 Node Manager
+# Topic Group Configuration for Tram Monitoring System
 #
 # Define groups of related topics for monitoring Hz and Echo.
 # Groups are displayed in the Topics tab of the UI.

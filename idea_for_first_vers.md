@@ -1,4 +1,4 @@
-# ROS2 Node Manager — Спецификация проекта
+# Tram Monitoring System — Спецификация проекта
 
 ## 1. Обзор
 

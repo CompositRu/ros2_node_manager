@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# ROS2 Node Manager - Deployment Script
+# Tram Monitoring System - Deployment Script
 #
 # Usage:
 #   ./deploy.sh <host> [user]

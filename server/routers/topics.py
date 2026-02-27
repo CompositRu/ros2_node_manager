@@ -20,6 +20,24 @@ async def get_topic_list():
         raise HTTPException(status_code=500, detail=f"Failed to list topics: {e}")
 
 
+@router.get("/info/{topic_name:path}")
+async def get_topic_info(topic_name: str):
+    """Get detailed info (type, publishers, subscribers) for a topic."""
+    from ..main import app_state
+
+    if not topic_name.startswith("/"):
+        topic_name = "/" + topic_name
+
+    if not app_state.connection or not app_state.connection.connected:
+        raise HTTPException(status_code=503, detail="Not connected to any server")
+
+    try:
+        info = await app_state.connection.ros2_topic_info(topic_name)
+        return {"topic": topic_name, **info}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get topic info: {e}")
+
+
 @router.get("/groups")
 async def get_topic_groups():
     """Get all topic groups with current Hz values."""

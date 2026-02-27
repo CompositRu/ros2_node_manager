@@ -1,4 +1,4 @@
-# ROS2 Node Manager
+# Tram Monitoring System
 
 Web-интерфейс для мониторинга и управления ROS2 нодами в Docker контейнерах.
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# ROS2 Node Manager - Start Script
+# Tram Monitoring System - Start Script
 #
 # Run this script on the server where ros2-monitor is deployed.
 #

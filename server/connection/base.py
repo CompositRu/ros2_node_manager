@@ -184,6 +184,49 @@ class BaseConnection(ABC):
             topics.append({"name": name, "type": msg_type})
         return topics
 
+    async def ros2_topic_info(self, topic_name: str) -> dict:
+        """Get detailed info for a topic: type, publishers, subscribers."""
+        output = await self.exec_command(f"ros2 topic info {topic_name} -v")
+        return self._parse_topic_info(output)
+
+    def _parse_topic_info(self, output: str) -> dict:
+        """Parse ros2 topic info -v output.
+
+        Example output:
+            Type: geometry_msgs/msg/Twist
+
+            Publisher count: 2
+              Node name: /teleop_turtle
+              Node name: /other_node
+            Subscription count: 1
+              Node name: /turtlesim
+        """
+        result = {
+            "type": "",
+            "publishers": [],
+            "subscribers": [],
+        }
+
+        section = None  # "pub" or "sub"
+
+        for line in output.split("\n"):
+            stripped = line.strip()
+
+            if stripped.startswith("Type:"):
+                result["type"] = stripped.split("Type:", 1)[1].strip()
+            elif "Publisher count:" in stripped:
+                section = "pub"
+            elif "Subscription count:" in stripped:
+                section = "sub"
+            elif stripped.startswith("Node name:"):
+                node_name = stripped.split("Node name:", 1)[1].strip()
+                if section == "pub":
+                    result["publishers"].append(node_name)
+                elif section == "sub":
+                    result["subscribers"].append(node_name)
+
+        return result
+
     async def ros2_service_list(self) -> list[str]:
         """Get list of services."""
         output = await self.exec_command("ros2 service list")

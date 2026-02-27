@@ -1,5 +1,5 @@
 [Unit]
-Description=ROS2 Node Manager - Web UI for monitoring ROS2 nodes
+Description=Tram Monitoring System - Web UI for monitoring ROS2 nodes
 After=network.target docker.service
 Wants=docker.service
 

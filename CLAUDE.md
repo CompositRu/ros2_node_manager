@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ROS2 Node Manager is a web interface for monitoring and managing ROS2 nodes running inside Docker containers. It supports both local Docker and remote SSH connections.
+Tram Monitoring System is a web interface for monitoring and managing ROS2 nodes running inside Docker containers. It supports both local Docker and remote SSH connections.
 
 ## Development Commands
 

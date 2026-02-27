@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# ROS2 Node Manager - Resource Monitor
+# Tram Monitoring System - Resource Monitor
 #
 # Collects CPU, memory, and subprocess metrics for the ros2-monitor app
 # and writes them to a CSV log file for analysis.

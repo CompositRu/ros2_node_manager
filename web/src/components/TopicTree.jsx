@@ -1,8 +1,52 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { getTopicList } from '../services/api';
+import { getTopicList, getTopicInfo } from '../services/api';
 import { createSingleTopicEchoSocket, createSingleTopicHzSocket } from '../services/websocket';
 
 const MAX_ECHO_MESSAGES = 500;
+
+/**
+ * Extract top-level field names from YAML text (ros2 topic echo output).
+ * @param {string} yaml - raw YAML text
+ * @returns {string[]} ordered list of top-level field names
+ */
+function extractYamlTopLevelKeys(yaml) {
+  const keys = [];
+  for (const line of yaml.split('\n')) {
+    if (line.length > 0 && line[0] !== ' ' && line[0] !== '\t' && line.includes(':')) {
+      const key = line.split(':')[0].trim();
+      if (key && !keys.includes(key)) {
+        keys.push(key);
+      }
+    }
+  }
+  return keys;
+}
+
+/**
+ * Filter YAML text to show only specified top-level fields and their nested content.
+ * @param {string} yaml - raw YAML text from ros2 topic echo
+ * @param {Set<string>} activeFields - set of top-level field names to keep
+ * @returns {string} filtered YAML text
+ */
+function filterYamlFields(yaml, activeFields) {
+  if (!activeFields || activeFields.size === 0) return yaml;
+
+  const lines = yaml.split('\n');
+  const result = [];
+  let keeping = false;
+
+  for (const line of lines) {
+    if (line.length > 0 && line[0] !== ' ' && line[0] !== '\t') {
+      const key = line.split(':')[0].trim();
+      keeping = activeFields.has(key);
+    }
+    if (keeping) {
+      result.push(line);
+    }
+  }
+
+  return result.join('\n');
+}
 
 function HzBadge({ hz }) {
   if (hz === null || hz === undefined) return null;
@@ -52,7 +96,7 @@ function collectAllPaths(node, path = '') {
 }
 
 function TopicTreeNode({ name, data, path, level, expandedPaths, onTogglePath,
-  selectedTopic, onSelectTopic, echoTopic, hzTopic, hzValues, onEcho, onHz }) {
+  selectedTopic, onSelectTopic, echoTopic, hzTopic, hzValues, onEcho, onHz, infoTopic, onInfo }) {
   const fullPath = path ? `${path}/${name}` : `/${name}`;
   const isExpanded = expandedPaths.has(fullPath);
   const hasChildren = Object.keys(data.children).length > 0 || data.topics.length > 0;
@@ -95,6 +139,8 @@ function TopicTreeNode({ name, data, path, level, expandedPaths, onTogglePath,
                 hzValues={hzValues}
                 onEcho={onEcho}
                 onHz={onHz}
+                infoTopic={infoTopic}
+                onInfo={onInfo}
               />
             ))}
 
@@ -120,6 +166,16 @@ function TopicTreeNode({ name, data, path, level, expandedPaths, onTogglePath,
                     {hzValue !== undefined && <HzBadge hz={hzValue} />}
                     {isSelected && (
                       <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onInfo(topic.name); }}
+                          className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${
+                            infoTopic === topic.name
+                              ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                              : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                          }`}
+                        >
+                          Info
+                        </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); onHz(topic.name); }}
                           className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${
@@ -164,6 +220,25 @@ function EchoPanel({ topicName, messages, paused, onTogglePause, onClear, onClos
   const draggingRef = useRef(false);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
+  const [activeFields, setActiveFields] = useState(new Set()); // empty = show all
+
+  // Extract available fields from the first message
+  const availableFields = useMemo(() => {
+    if (messages.length === 0) return [];
+    return extractYamlTopLevelKeys(messages[0].data);
+  }, [messages.length > 0 ? messages[0].data : '']);
+
+  const toggleField = useCallback((field) => {
+    setActiveFields(prev => {
+      const next = new Set(prev);
+      if (next.has(field)) {
+        next.delete(field);
+      } else {
+        next.add(field);
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (autoScrollRef.current && listRef.current && !paused) {
@@ -234,6 +309,36 @@ function EchoPanel({ topicName, messages, paused, onTogglePause, onClear, onClos
         </div>
       </div>
 
+      {/* Field filter chips */}
+      {availableFields.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1 px-3 py-1.5 border-b border-gray-700 flex-shrink-0">
+          <span className="text-gray-500 text-[10px] mr-1">Fields:</span>
+          {availableFields.map(field => (
+            <button
+              key={field}
+              onClick={() => toggleField(field)}
+              className={`px-1.5 py-0.5 text-[10px] rounded font-mono transition-colors ${
+                activeFields.has(field)
+                  ? 'bg-blue-600 text-white'
+                  : activeFields.size > 0
+                    ? 'bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              {field}
+            </button>
+          ))}
+          {activeFields.size > 0 && (
+            <button
+              onClick={() => setActiveFields(new Set())}
+              className="px-1.5 py-0.5 text-[10px] rounded bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white ml-1"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      )}
+
       <div
         ref={listRef}
         onScroll={handleScroll}
@@ -242,14 +347,71 @@ function EchoPanel({ topicName, messages, paused, onTogglePause, onClear, onClos
         {messages.length === 0 && (
           <div className="text-gray-500 text-center py-8">Waiting for messages...</div>
         )}
-        {messages.map((msg, idx) => (
-          <div key={idx} className="mb-2">
-            <pre className="text-gray-300 whitespace-pre-wrap leading-tight">{msg.data}</pre>
-            {idx < messages.length - 1 && (
-              <div className="text-gray-600 mt-0.5">---</div>
-            )}
-          </div>
-        ))}
+        {messages.map((msg, idx) => {
+          const displayData = activeFields.size > 0
+            ? filterYamlFields(msg.data, activeFields)
+            : msg.data;
+          if (activeFields.size > 0 && !displayData.trim()) return null;
+          return (
+            <div key={idx} className="mb-2">
+              <pre className="text-gray-300 whitespace-pre-wrap leading-tight">{displayData}</pre>
+              {idx < messages.length - 1 && (
+                <div className="text-gray-600 mt-0.5">---</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TopicInfoPanel({ topicName, info, loading, onClose }) {
+  if (loading) {
+    return (
+      <div className="px-3 py-2 bg-gray-800 border-b border-gray-700 text-gray-400 text-xs">
+        Loading info for <span className="text-blue-400 font-mono">{topicName}</span>...
+      </div>
+    );
+  }
+
+  if (!info) return null;
+
+  return (
+    <div className="px-3 py-2 bg-gray-800 border-b border-gray-700 text-xs">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-gray-300 font-medium">Topic Info</span>
+        <button
+          onClick={onClose}
+          className="px-1.5 py-0.5 text-[10px] rounded bg-gray-700 hover:bg-gray-600 text-gray-300"
+        >
+          Close
+        </button>
+      </div>
+      <div className="text-gray-400 mb-1">
+        Type: <span className="text-yellow-400 font-mono">{info.type || '—'}</span>
+      </div>
+      <div className="flex gap-4">
+        <div className="flex-1">
+          <div className="text-gray-500 mb-0.5">Publishers ({info.publishers?.length || 0})</div>
+          {info.publishers?.length > 0 ? (
+            info.publishers.map((node, i) => (
+              <div key={i} className="text-green-400 font-mono pl-2">{node}</div>
+            ))
+          ) : (
+            <div className="text-gray-600 pl-2">none</div>
+          )}
+        </div>
+        <div className="flex-1">
+          <div className="text-gray-500 mb-0.5">Subscribers ({info.subscribers?.length || 0})</div>
+          {info.subscribers?.length > 0 ? (
+            info.subscribers.map((node, i) => (
+              <div key={i} className="text-blue-400 font-mono pl-2">{node}</div>
+            ))
+          ) : (
+            <div className="text-gray-600 pl-2">none</div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -269,6 +431,11 @@ export function TopicTree({ connected }) {
   const [echoPaused, setEchoPaused] = useState(false);
   const echoWsRef = useRef(null);
   const echoPausedRef = useRef(false);
+
+  // Info state
+  const [infoTopic, setInfoTopic] = useState(null);
+  const [topicInfo, setTopicInfo] = useState(null);
+  const [infoLoading, setInfoLoading] = useState(false);
 
   // Hz state
   const [hzTopic, setHzTopic] = useState(null);
@@ -422,6 +589,33 @@ export function TopicTree({ connected }) {
     hzWsRef.current = ws;
   }, [hzTopic]);
 
+  // Info handler
+  const handleInfo = useCallback(async (topicName) => {
+    if (infoTopic === topicName) {
+      setInfoTopic(null);
+      setTopicInfo(null);
+      return;
+    }
+
+    setInfoTopic(topicName);
+    setTopicInfo(null);
+    setInfoLoading(true);
+    try {
+      const data = await getTopicInfo(topicName);
+      setTopicInfo(data);
+    } catch (err) {
+      console.error('Failed to get topic info:', err);
+      setTopicInfo({ type: '', publishers: [], subscribers: [], error: err.message });
+    } finally {
+      setInfoLoading(false);
+    }
+  }, [infoTopic]);
+
+  const closeInfo = useCallback(() => {
+    setInfoTopic(null);
+    setTopicInfo(null);
+  }, []);
+
   if (!connected) {
     return (
       <div className="h-full flex items-center justify-center text-gray-500">
@@ -508,6 +702,8 @@ export function TopicTree({ connected }) {
               hzValues={hzValues}
               onEcho={handleEcho}
               onHz={handleHz}
+              infoTopic={infoTopic}
+              onInfo={handleInfo}
             />
           ))}
         {/* Root-level topics (unlikely but handle) */}
@@ -527,6 +723,16 @@ export function TopicTree({ connected }) {
           </div>
         ))}
       </div>
+
+      {/* Topic Info Panel */}
+      {infoTopic && (
+        <TopicInfoPanel
+          topicName={infoTopic}
+          info={topicInfo}
+          loading={infoLoading}
+          onClose={closeInfo}
+        />
+      )}
 
       {/* Echo Panel */}
       {echoTopic && (

@@ -68,7 +68,7 @@ function App() {
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800 flex-shrink-0">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold text-blue-400">ROS2 Node Manager</h1>
+          <h1 className="text-xl font-bold text-blue-400">Tram Monitoring System</h1>
 
           {server.connected && server.currentServer && (
             <>
@@ -219,7 +219,7 @@ function App() {
       {/* Footer */}
       <footer className="px-4 py-2 border-t border-gray-700 bg-gray-800 text-xs text-gray-500 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <span>ROS2 Node Manager v0.4.0</span>
+          <span>Tram Monitoring System v0.4.0</span>
           {server.error && (
             <span className="text-red-400">Error: {server.error}</span>
           )}

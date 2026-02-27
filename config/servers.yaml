@@ -1,4 +1,4 @@
-# ROS2 Node Manager - Server Configuration
+# Tram Monitoring System - Server Configuration
 #
 # Configure your Docker containers here.
 # The first server in the list will be used for auto-connection on startup.

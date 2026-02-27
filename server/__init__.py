@@ -1,4 +1,4 @@
-"""ROS2 Node Manager Server."""
+"""Tram Monitoring System Server."""
 
 from .main import app, app_state
 
