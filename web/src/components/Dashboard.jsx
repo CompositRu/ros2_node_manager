@@ -45,9 +45,8 @@ function formatTimestamp(ts) {
 
 // ─── Sub-components ─────────────────────────────────────────────
 
-function StatusBanner({ status, data }) {
+function StatusBanner({ status }) {
   const s = STATUS_STYLES[status.color];
-  const speed = data?.speed_kmh;
 
   return (
     <div className={`${s.bg} ${s.border} border rounded-lg p-6 flex items-center justify-between`}>
@@ -55,11 +54,19 @@ function StatusBanner({ status, data }) {
         <div className={`w-4 h-4 rounded-full ${s.dot} animate-pulse`} />
         <span className={`text-2xl font-bold ${s.text}`}>{status.label}</span>
       </div>
-      {speed != null && (
-        <span className="text-3xl font-bold text-white">
-          {speed} <span className="text-lg text-gray-400">km/h</span>
-        </span>
-      )}
+    </div>
+  );
+}
+
+function SpeedCard({ speed }) {
+  if (speed == null) return null;
+
+  return (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 flex items-center justify-center">
+      <span className="text-5xl font-bold text-white tabular-nums">
+        {speed}
+      </span>
+      <span className="text-lg text-gray-400 ml-2">km/h</span>
     </div>
   );
 }
@@ -212,7 +219,10 @@ export function Dashboard({ connected, onSectionChange }) {
           </div>
 
           {/* System Status Banner */}
-          <StatusBanner status={status} data={data} />
+          <StatusBanner status={status} />
+
+          {/* Speed */}
+          <SpeedCard speed={data?.speed_kmh} />
 
           {/* Resources + Quick Stats */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
