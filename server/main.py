@@ -15,7 +15,7 @@ from .models import ServerConfig, ServerType
 from .connection import BaseConnection, LocalDockerConnection, SSHDockerConnection, ConnectionError, ContainerNotFoundError
 from .state import StatePersister
 # from .services import NodeServicee
-from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router, history_router
+from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router, history_router, dashboard_router
 from .config import settings, load_servers_config, get_server_by_id, load_alert_config, load_topic_groups_config
 from .services import NodeService, AlertService, TopicHzMonitor, HistoryStore, LogCollector
 from fastapi.responses import FileResponse, JSONResponse
@@ -252,6 +252,7 @@ app.include_router(websocket_router)
 app.include_router(debug_router)
 app.include_router(topics_router)
 app.include_router(history_router)
+app.include_router(dashboard_router)
 
 
 # Serve static files (React build)

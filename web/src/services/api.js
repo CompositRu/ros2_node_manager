@@ -116,6 +116,12 @@ export async function getStats() {
   return request('/debug/stats');
 }
 
+// === Dashboard API ===
+
+export async function getDashboard() {
+  return request('/dashboard');
+}
+
 // === History API ===
 
 export async function getLogHistory(params = {}) {

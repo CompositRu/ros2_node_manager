@@ -72,6 +72,21 @@ class LocalDockerConnection(BaseConnection):
         finally:
             metrics.subprocess_finished()
     
+    async def exec_host_command(self, cmd: str, timeout: float = 15.0) -> str:
+        """Execute command on local host (outside Docker)."""
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            if proc.returncode != 0:
+                raise ConnectionError(stderr.decode().strip() or f"Host command failed with code {proc.returncode}")
+            return stdout.decode()
+        except asyncio.TimeoutError:
+            raise ConnectionError(f"Host command timed out after {timeout}s")
+
     async def exec_stream(self, cmd: str) -> AsyncIterator[str]:
         """Execute command and stream output line by line."""
         if not self._connected:

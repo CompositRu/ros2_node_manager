@@ -108,6 +108,20 @@ class SSHDockerConnection(BaseConnection):
         finally:
             metrics.subprocess_finished()
     
+    async def exec_host_command(self, cmd: str, timeout: float = 15.0) -> str:
+        """Execute command on remote host (outside Docker) via SSH."""
+        if not self._connected or not self._conn:
+            raise ConnectionError("Not connected")
+        try:
+            result = await asyncio.wait_for(self._conn.run(cmd), timeout=timeout)
+            if result.exit_status != 0:
+                raise ConnectionError(result.stderr.strip() or f"Host command failed with code {result.exit_status}")
+            return result.stdout
+        except asyncio.TimeoutError:
+            raise ConnectionError(f"Host command timed out after {timeout}s")
+        except asyncssh.Error as e:
+            raise ConnectionError(f"SSH host command failed: {e}")
+
     async def exec_stream(self, cmd: str) -> AsyncIterator[str]:
         """Execute command and stream output via SSH."""
         if not self._connected or not self._conn:

@@ -14,6 +14,7 @@ import { UnifiedLogs } from './components/UnifiedLogs';
 import { Diagnostics } from './components/Diagnostics';
 import { Topics } from './components/Topics';
 import { History } from './components/History';
+import { Dashboard } from './components/Dashboard';
 
 // Min/max constraints
 const MIN_TREE_WIDTH = 200;
@@ -39,7 +40,7 @@ function App() {
     wasConnected.current = server.connected;
   }, [server.connected, nodes.refresh]);
 
-  const [activeSection, setActiveSection] = useState('diagnostics');
+  const [activeSection, setActiveSection] = useState('dashboard');
   const [selectedNode, setSelectedNode] = useState(null);
   const [logNode, setLogNode] = useState(null);
 
@@ -69,7 +70,10 @@ function App() {
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800 flex-shrink-0">
         <div className="flex items-center gap-4">
-          <h1 className="text-xl font-bold text-blue-400">Tram Monitoring System</h1>
+          <div className="flex items-center gap-2 cursor-pointer" onClick={() => setActiveSection('dashboard')}>
+            <img src="/logo.png" alt="TMS" className="h-7" />
+            <span className="text-gray-400 text-xs hidden sm:inline">Tram Monitoring System</span>
+          </div>
 
           {server.connected && server.currentServer && (
             <>
@@ -128,6 +132,13 @@ function App() {
           activeSection={activeSection}
           onSectionChange={setActiveSection}
         />
+
+        {/* Dashboard Section */}
+        {activeSection === 'dashboard' && (
+          <div className="flex-1 overflow-hidden">
+            <Dashboard connected={server.connected} onSectionChange={setActiveSection} />
+          </div>
+        )}
 
         {/* Nodes Section */}
         {activeSection === 'nodes' && (

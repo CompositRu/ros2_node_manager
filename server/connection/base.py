@@ -56,7 +56,12 @@ class BaseConnection(ABC):
     async def exec_stream(self, cmd: str) -> AsyncIterator[str]:
         """Execute command and stream output line by line."""
         pass
-    
+
+    @abstractmethod
+    async def exec_host_command(self, cmd: str, timeout: float = 15.0) -> str:
+        """Execute command on the host machine (outside Docker container)."""
+        pass
+
     def _ros_env(self) -> str:
         """Build ROS environment setup commands."""
         return (
