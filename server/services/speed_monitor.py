@@ -66,5 +66,6 @@ class SpeedMonitor:
                 break
             except Exception as e:
                 print(f"SpeedMonitor: stream error: {e}")
+                self.speed_kmh = None
                 if self._running:
                     await asyncio.sleep(5)

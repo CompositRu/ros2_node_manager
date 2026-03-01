@@ -58,13 +58,15 @@ function StatusBanner({ status }) {
   );
 }
 
-function SpeedCard({ speed, connected }) {
-  if (!connected) return null;
+function SpeedCard({ speed, status }) {
+  if (status.level === 'offline') return null;
+
+  const display = (status.level === 'critical' || speed == null) ? '—' : speed;
 
   return (
     <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 flex items-center justify-center">
       <span className="text-5xl font-bold text-white tabular-nums">
-        {speed != null ? speed : '—'}
+        {display}
       </span>
       <span className="text-lg text-gray-400 ml-2">km/h</span>
     </div>
@@ -222,7 +224,7 @@ export function Dashboard({ connected, onSectionChange }) {
           <StatusBanner status={status} />
 
           {/* Speed */}
-          <SpeedCard speed={data?.speed_kmh} connected={connected} />
+          <SpeedCard speed={data?.speed_kmh} status={status} />
 
           {/* Resources + Quick Stats */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
