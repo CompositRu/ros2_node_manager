@@ -77,7 +77,7 @@ function App() {
 
           {server.connected && server.currentServer && (
             <>
-              <span className="text-green-400 text-sm">● {server.currentServer.name}</span>
+              <span className="text-green-400 text-sm" title={server.currentServer.name}>●</span>
               <button
                 onClick={server.disconnect}
                 disabled={server.loading}

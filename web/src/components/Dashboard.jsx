@@ -55,9 +55,6 @@ function StatusBanner({ status, data }) {
         <div className={`w-4 h-4 rounded-full ${s.dot} animate-pulse`} />
         <span className={`text-2xl font-bold ${s.text}`}>{status.label}</span>
       </div>
-      {data?.docker?.running && (
-        <span className="text-gray-300 text-lg">{active} / {total} nodes active</span>
-      )}
     </div>
   );
 }
@@ -109,7 +106,7 @@ function ResourcesCard({ resources }) {
 
 function QuickStatsCard({ data }) {
   const stats = [
-    { label: 'Nodes', value: data?.nodes?.active != null ? `${data.nodes.active} active` : '—' },
+    { label: 'Nodes', value: data?.nodes?.active != null ? `${data.nodes.active}/${data.nodes.total} active` : '—' },
     { label: 'Topics', value: data?.topics_count ?? '—' },
     { label: 'Services', value: data?.services_count ?? '—' },
     { label: 'Uptime', value: formatUptime(data?.docker?.uptime_seconds) },
@@ -201,7 +198,7 @@ export function Dashboard({ connected, onSectionChange }) {
   const status = getAutopilotStatus(connected, data);
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden select-text">
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-4xl mx-auto space-y-6">
           {/* Logo */}
