@@ -237,6 +237,36 @@ class BaseConnection(ABC):
         output = await self.exec_command("ros2 service list")
         services = [s.strip() for s in output.strip().split("\n") if s.strip()]
         return services
+
+    async def ros2_service_list_typed(self) -> list[dict]:
+        """Get list of all services with their interface types."""
+        output = await self.exec_command("ros2 service list -t")
+        services = []
+        for line in output.strip().split("\n"):
+            line = line.strip()
+            if not line or not line.startswith("/"):
+                continue
+            if " [" in line and line.endswith("]"):
+                bracket_idx = line.rindex(" [")
+                name = line[:bracket_idx].strip()
+                srv_type = line[bracket_idx + 2:-1]
+            else:
+                name = line
+                srv_type = ""
+            services.append({"name": name, "type": srv_type})
+        return services
+
+    async def ros2_interface_show(self, interface_type: str) -> str:
+        """Get interface definition (request/response fields for services)."""
+        output = await self.exec_command(f"ros2 interface show {interface_type}")
+        return output.strip()
+
+    async def ros2_service_call(self, service_name: str, service_type: str, request_yaml: str) -> str:
+        """Call a ROS2 service and return the response text."""
+        escaped_yaml = request_yaml.replace("'", "'\"'\"'")
+        cmd = f"ros2 service call {service_name} {service_type} '{escaped_yaml}'"
+        output = await self.exec_command(cmd, timeout=30.0)
+        return output.strip()
         
     async def is_lifecycle_node(self, node_name: str) -> bool:
         """Check if node is a lifecycle node."""

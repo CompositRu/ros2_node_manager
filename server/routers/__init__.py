@@ -7,5 +7,6 @@ from .debug import router as debug_router
 from .topics import router as topics_router
 from .history import router as history_router
 from .dashboard import router as dashboard_router
+from .services import router as services_router
 
-__all__ = ["servers_router", "nodes_router", "websocket_router", "debug_router", "topics_router", "history_router", "dashboard_router"]
+__all__ = ["servers_router", "nodes_router", "websocket_router", "debug_router", "topics_router", "history_router", "dashboard_router", "services_router"]

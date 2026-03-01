@@ -110,6 +110,24 @@ export async function toggleGroupHz(groupId) {
   return request(`/topics/groups/${groupId}/hz`, { method: 'POST' });
 }
 
+// === Services API ===
+
+export async function getServiceList() {
+  return request('/services/list');
+}
+
+export async function getServiceInterface(interfaceType) {
+  return request(`/services/interface/${interfaceType}`);
+}
+
+export async function callService(serviceName, serviceType, requestYaml) {
+  const path = serviceName.startsWith('/') ? serviceName.slice(1) : serviceName;
+  return request(`/services/call/${path}`, {
+    method: 'POST',
+    body: JSON.stringify({ service_type: serviceType, request_yaml: requestYaml }),
+  });
+}
+
 // === System Stats ===
 
 export async function getStats() {

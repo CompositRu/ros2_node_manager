@@ -15,6 +15,7 @@ import { Diagnostics } from './components/Diagnostics';
 import { Topics } from './components/Topics';
 import { History } from './components/History';
 import { Dashboard } from './components/Dashboard';
+import { Services } from './components/Services';
 
 // Min/max constraints
 const MIN_TREE_WIDTH = 200;
@@ -210,6 +211,13 @@ function App() {
         {activeSection === 'topics' && (
           <div className="flex-1 overflow-hidden">
             <Topics connected={server.connected} />
+          </div>
+        )}
+
+        {/* Services Section */}
+        {activeSection === 'services' && (
+          <div className="flex-1 overflow-hidden">
+            <Services connected={server.connected} />
           </div>
         )}
 
