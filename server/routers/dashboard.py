@@ -227,16 +227,15 @@ async def _get_speed(conn) -> float | None:
     """Get current speed from /localization/kinematic_state (Odometry)."""
     try:
         output = await conn.exec_command(
-            "ros2 topic echo /localization/kinematic_state --once --no-arr "
-            "--field twist.twist.linear.x",
-            timeout=3.0,
+            "ros2 topic echo /localization/kinematic_state --once --no-arr",
+            timeout=5.0,
         )
-        for line in output.strip().split("\n"):
-            line = line.strip().rstrip("---").strip()
-            if not line:
-                continue
-            speed_ms = float(line)
-            return round(abs(speed_ms) * 3.6, 1)
+        # Parse twist.twist.linear.x from YAML output
+        import yaml
+        docs = list(yaml.safe_load_all(output))
+        if docs and docs[0]:
+            x = docs[0]["twist"]["twist"]["linear"]["x"]
+            return round(abs(float(x)) * 3.6, 1)
     except Exception:
         pass
     return None
