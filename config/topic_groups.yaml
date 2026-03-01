@@ -12,7 +12,7 @@
 
 topic_groups:
   - id: lidar_raw
-    name: "Lidar Raw (rslidar_packets)"
+    name: "Лидарные пакеты (rslidar_packets)"
     topics:
       - /sensing/lidar/front/rslidar_packets
       - /sensing/lidar/front_left/rslidar_packets
@@ -20,15 +20,27 @@ topic_groups:
       - /sensing/lidar/top/rslidar_packets
 
   - id: lidar_pointclouds
-    name: "Lidar Pointclouds (after driver)"
+    name: "Лидарные облака от драйвера rslidar"
     topics:
       - /sensing/lidar/front/pointcloud_raw_ex
       - /sensing/lidar/front_left/pointcloud_raw_ex
       - /sensing/lidar/front_right/pointcloud_raw_ex
       - /sensing/lidar/top/pointcloud_raw_ex
 
+  - id: lidar_pipeline
+    name: "Лидарный пайплайн"
+    topics:
+      - /sensing/lidar/front/rslidar_packets
+      - /sensing/lidar/front/pointcloud_raw_ex
+      - /sensing/lidar/front/mr_filtered/pointcloud_ex
+      - /sensing/lidar/front/ego_cropped/pointcloud_ex
+      - /sensing/lidar/front/rectified/pointcloud_ex
+      - /sensing/lidar/front/converted/pointcloud_ex
+      - /sensing/lidar/front/outlier_filtered/pointcloud
+      - /sensing/lidar/concatenated/pointcloud
+
   - id: odometry
-    name: "Odometry"
+    name: "Одометрия"
     topics:
       - /vehicle/front_bogie_velocity
       - /vehicle/rear_bogie_velocity
