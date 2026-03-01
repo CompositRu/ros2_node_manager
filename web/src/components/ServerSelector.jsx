@@ -75,8 +75,8 @@ export function ServerSelector({ servers, currentServer, connected, onConnect, o
       )}
       
       {connected && currentServer && (
-        <span className="text-green-400 text-sm">
-          ● Connected to {currentServer.name}
+        <span className="text-green-400 text-sm" title={`Connected to ${currentServer.name}`}>
+          ●
         </span>
       )}
     </div>

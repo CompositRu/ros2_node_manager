@@ -4,16 +4,16 @@ import { useDashboard } from '../hooks/useDashboard';
 
 function getAutopilotStatus(connected, data) {
   if (!connected || !data || !data.docker?.running) {
-    return { level: 'offline', label: 'OFFLINE', color: 'gray' };
+    return { level: 'offline', label: 'Не запущен контейнер', color: 'gray' };
   }
-  const { active, inactive, total } = data.nodes;
-  if (total > 0 && active === 0) {
-    return { level: 'critical', label: 'CRITICAL', color: 'red' };
+  const { active, total } = data.nodes;
+  if (total === 0 || active === 0) {
+    return { level: 'critical', label: 'Не запущен автопилот', color: 'red' };
   }
-  if (inactive > 0) {
-    return { level: 'warning', label: 'WARNINGS', color: 'yellow' };
+  if (active >= 100) {
+    return { level: 'running', label: 'Автопилот запущен', color: 'green' };
   }
-  return { level: 'running', label: 'AUTOPILOT RUNNING', color: 'green' };
+  return { level: 'warning', label: 'Автопилот запущен частично', color: 'yellow' };
 }
 
 const STATUS_STYLES = {
@@ -103,9 +103,6 @@ function ResourcesCard({ resources }) {
           unit={memVal != null ? 'G' : ''}
         />
       </div>
-      {resources.gpu_name && (
-        <div className="mt-3 text-gray-500 text-xs">{resources.gpu_name}</div>
-      )}
     </div>
   );
 }
@@ -171,11 +168,12 @@ function RecentAlertsCard({ alerts, onViewAll }) {
 }
 
 function QuickAccessCard({ onNavigate }) {
+  const iconClass = "w-4 h-4 inline-block";
   const links = [
-    { id: 'diagnostics', label: 'Diagnostics', icon: '♡' },
-    { id: 'logs', label: 'Logs', icon: '☰' },
-    { id: 'nodes', label: 'Nodes', icon: '⊞' },
-    { id: 'topics', label: 'Topics', icon: '⇄' },
+    { id: 'diagnostics', label: 'Diagnostics', icon: <svg className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /></svg> },
+    { id: 'logs', label: 'Logs', icon: <svg className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg> },
+    { id: 'nodes', label: 'Nodes', icon: <svg className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25a2.25 2.25 0 01-2.25-2.25v-2.25z" /></svg> },
+    { id: 'topics', label: 'Topics', icon: <svg className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg> },
   ];
 
   return (
@@ -206,6 +204,11 @@ export function Dashboard({ connected, onSectionChange }) {
     <div className="h-full flex flex-col overflow-hidden">
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-4xl mx-auto space-y-6">
+          {/* Logo */}
+          <div className="flex justify-center">
+            <img src="/logo2.png" alt="TMS" className="h-24" />
+          </div>
+
           {/* System Status Banner */}
           <StatusBanner status={status} data={data} />
 
