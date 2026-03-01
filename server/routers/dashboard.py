@@ -2,12 +2,54 @@
 
 import asyncio
 import json
+import math
 import re
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
 
+from ..services.speed_monitor import SpeedMonitor
+
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+# Lazy speed monitor — started on first dashboard request, stopped on inactivity
+_speed_monitor: SpeedMonitor | None = None
+_speed_monitor_last_access: float = 0
+_speed_monitor_watchdog: asyncio.Task | None = None
+_SPEED_INACTIVITY_TIMEOUT = 15  # seconds
+
+
+async def _ensure_speed_monitor(conn) -> SpeedMonitor | None:
+    """Start speed monitor lazily, reset inactivity timer."""
+    global _speed_monitor, _speed_monitor_last_access, _speed_monitor_watchdog
+
+    _speed_monitor_last_access = time.monotonic()
+
+    if _speed_monitor and _speed_monitor._running:
+        return _speed_monitor
+
+    # Start new monitor
+    _speed_monitor = SpeedMonitor(conn)
+    await _speed_monitor.start()
+
+    # Start watchdog task
+    if _speed_monitor_watchdog is None or _speed_monitor_watchdog.done():
+        _speed_monitor_watchdog = asyncio.create_task(_speed_inactivity_watchdog())
+
+    return _speed_monitor
+
+
+async def _speed_inactivity_watchdog():
+    """Stop speed monitor if no dashboard requests for a while."""
+    global _speed_monitor, _speed_monitor_last_access
+    while True:
+        await asyncio.sleep(5)
+        if time.monotonic() - _speed_monitor_last_access > _SPEED_INACTIVITY_TIMEOUT:
+            if _speed_monitor:
+                await _speed_monitor.stop()
+                _speed_monitor = None
+            break
 
 
 @router.get("")
@@ -40,8 +82,11 @@ async def get_dashboard():
     result["docker"]["container"] = conn.container
     result["docker"]["running"] = True
 
+    # Ensure speed monitor is running
+    speed_mon = await _ensure_speed_monitor(conn)
+
     # Gather data concurrently
-    docker_info, docker_stats, gpu_info, node_counts, topic_count, service_count, cpu_count, speed = await asyncio.gather(
+    docker_info, docker_stats, gpu_info, node_counts, topic_count, service_count, cpu_count = await asyncio.gather(
         _get_docker_info(conn),
         _get_docker_stats(conn),
         _get_gpu_info(conn),
@@ -49,7 +94,6 @@ async def get_dashboard():
         _get_topic_count(conn),
         _get_service_count(conn),
         _get_cpu_count(conn),
-        _get_speed(conn),
     )
 
     # Docker info (uptime)
@@ -82,8 +126,9 @@ async def get_dashboard():
     result["topics_count"] = topic_count
     result["services_count"] = service_count
 
-    # Speed
-    result["speed_kmh"] = speed
+    # Speed — read latest from background monitor
+    if speed_mon:
+        result["speed_kmh"] = speed_mon.speed_kmh
 
     return result
 
@@ -97,8 +142,9 @@ async def _get_docker_info(conn) -> dict | None:
         state = json.loads(output.strip().strip("'"))
         started_at = state.get("StartedAt", "")
         if started_at and started_at != "0001-01-01T00:00:00Z":
-            # Parse ISO timestamp
-            started_dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            # Parse ISO timestamp — truncate nanoseconds to microseconds
+            ts = re.sub(r"(\.\d{6})\d+", r"\1", started_at).replace("Z", "+00:00")
+            started_dt = datetime.fromisoformat(ts)
             uptime = (datetime.now(timezone.utc) - started_dt).total_seconds()
             return {"started_at": started_at, "uptime_seconds": int(uptime)}
     except Exception as e:
@@ -206,10 +252,11 @@ async def _get_topic_count(conn) -> int:
 
 
 async def _get_service_count(conn) -> int:
-    """Get total number of ROS2 services."""
+    """Get total number of ROS2 services (excluding technical)."""
+    from .services import _is_technical_service
     try:
         services = await conn.ros2_service_list()
-        return len(services)
+        return sum(1 for s in services if not _is_technical_service(s))
     except Exception:
         return 0
 
@@ -221,21 +268,3 @@ async def _get_cpu_count(conn) -> int:
         return int(output.strip())
     except Exception:
         return 0
-
-
-async def _get_speed(conn) -> float | None:
-    """Get current speed from /localization/kinematic_state (Odometry)."""
-    try:
-        output = await conn.exec_command(
-            "ros2 topic echo /localization/kinematic_state --once --no-arr",
-            timeout=5.0,
-        )
-        # Parse twist.twist.linear.x from YAML output
-        import yaml
-        docs = list(yaml.safe_load_all(output))
-        if docs and docs[0]:
-            x = docs[0]["twist"]["twist"]["linear"]["x"]
-            return round(abs(float(x)) * 3.6, 1)
-    except Exception:
-        pass
-    return None
