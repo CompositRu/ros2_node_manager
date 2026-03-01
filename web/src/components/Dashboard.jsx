@@ -47,7 +47,7 @@ function formatTimestamp(ts) {
 
 function StatusBanner({ status, data }) {
   const s = STATUS_STYLES[status.color];
-  const { active, total } = data?.nodes || { active: 0, total: 0 };
+  const speed = data?.speed_kmh;
 
   return (
     <div className={`${s.bg} ${s.border} border rounded-lg p-6 flex items-center justify-between`}>
@@ -55,6 +55,11 @@ function StatusBanner({ status, data }) {
         <div className={`w-4 h-4 rounded-full ${s.dot} animate-pulse`} />
         <span className={`text-2xl font-bold ${s.text}`}>{status.label}</span>
       </div>
+      {speed != null && (
+        <span className="text-3xl font-bold text-white">
+          {speed} <span className="text-lg text-gray-400">km/h</span>
+        </span>
+      )}
     </div>
   );
 }
@@ -218,7 +223,7 @@ export function Dashboard({ connected, onSectionChange }) {
           {/* Recent Alerts */}
           <RecentAlertsCard
             alerts={alerts}
-            onViewAll={() => onSectionChange('history')}
+            onViewAll={() => onSectionChange('history', { tab: 'alerts' })}
           />
 
           {/* Quick Access */}

@@ -234,6 +234,43 @@ def _parse_diagnostic_array_regex(text: str) -> list[DiagnosticItem]:
     return items
 
 
+# MRM status value → (diagnostic level, label)
+_MRM_STATUS_MAP = {
+    0: (0, "NORMAL"),      # OK
+    1: (2, "ERROR"),       # ERROR
+    2: (1, "OPERATING"),   # WARN
+    3: (0, "SUCCEEDED"),   # OK
+    4: (2, "FAILED"),      # ERROR
+}
+
+
+async def stream_mrm_status(
+    connection: BaseConnection,
+) -> AsyncIterator[list[DiagnosticItem]]:
+    """Stream /display/mrm_status topic and yield DiagnosticItem."""
+    cmd = "ros2 topic echo /display/mrm_status"
+    buffer = []
+
+    try:
+        async for line in connection.exec_stream(cmd):
+            buffer.append(line)
+            if line.strip() == "---":
+                text = "\n".join(buffer)
+                buffer = []
+                match = re.search(r"status:\s*(\d+)", text)
+                if match:
+                    status_val = int(match.group(1))
+                    level, label = _MRM_STATUS_MAP.get(status_val, (2, "ERROR"))
+                    yield [DiagnosticItem(
+                        name="mrm_status",
+                        level=level,
+                        message=label,
+                        timestamp=datetime.now(),
+                    )]
+    except Exception as e:
+        print(f"MRM status stream error: {e}")
+
+
 async def stream_bool_topic(
     connection: BaseConnection,
     topic: str,

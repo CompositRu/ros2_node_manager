@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..models import NodeStatus
-from ..services import stream_diagnostics, stream_bool_topic, stream_group_echo
+from ..services import stream_diagnostics, stream_bool_topic, stream_mrm_status, stream_group_echo
 from ..services.metrics import metrics
 from ..connection import ContainerNotFoundError
 from ..config import load_topic_groups_config
@@ -135,7 +135,11 @@ async def diagnostics_websocket(websocket: WebSocket):
             ):
                 await _send_items(items)
 
-        await asyncio.gather(run_diagnostics(), run_lidar_sync())
+        async def run_mrm_status():
+            async for items in stream_mrm_status(conn):
+                await _send_items(items)
+
+        await asyncio.gather(run_diagnostics(), run_lidar_sync(), run_mrm_status())
 
     except WebSocketDisconnect:
         pass

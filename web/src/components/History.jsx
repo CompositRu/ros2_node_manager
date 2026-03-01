@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { LogHistory } from './LogHistory';
 import { AlertHistory } from './AlertHistory';
 
@@ -7,8 +7,12 @@ const SUB_TABS = [
   { id: 'alerts', label: 'Alert History' },
 ];
 
-export function History({ connected }) {
-  const [subTab, setSubTab] = useState('logs');
+export function History({ connected, initialTab }) {
+  const [subTab, setSubTab] = useState(initialTab || 'logs');
+
+  useEffect(() => {
+    if (initialTab) setSubTab(initialTab);
+  }, [initialTab]);
 
   if (!connected) {
     return (

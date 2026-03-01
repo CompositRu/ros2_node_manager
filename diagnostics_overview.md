@@ -53,7 +53,15 @@ tram_localization_msgs/NavGnss (~/sub/nav_gnss) ─┘
 
 ### Поток данных
 ```
-autoware_adapi_v1_msgs/MrmState (~/sub/mrm_state) ──→ UiIndicatorsBackend ──→ /display/mrm_status ──→ mrm_plugin (RViz overlay)
+autoware_adapi_v1_msgs/MrmState
+        │
+        │  (топик: ~/sub/mrm_state)
+        ▼
+  UiIndicatorsBackend
+        │
+        │  (топик: ~/pub/mrm_status)
+        ▼
+  MrmDisplay (RViz overlay)
 ```
 
 ### Подписки бэкенда (`ui_indicators_backend`)

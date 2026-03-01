@@ -42,6 +42,20 @@ function isLidarSyncItem(name) {
   return name.includes('lidar_sync_flag');
 }
 
+function isMrmItem(name) {
+  return name.includes('mrm_status');
+}
+
+// MRM status colors based on message text (matches RViz palette, static)
+const MRM_COLORS = {
+  NORMAL:    { text: 'text-green-400',  dot: 'bg-green-400',  bg: 'bg-green-900/30 border-green-700/50' },
+  ERROR:     { text: 'text-red-400',    dot: 'bg-red-400',    bg: 'bg-red-900/30 border-red-700/50' },
+  OPERATING: { text: 'text-orange-400', dot: 'bg-orange-400', bg: 'bg-orange-900/30 border-orange-700/50' },
+  SUCCEEDED: { text: 'text-green-400',  dot: 'bg-green-400',  bg: 'bg-green-900/30 border-green-700/50' },
+  FAILED:    { text: 'text-red-400',    dot: 'bg-red-400',    bg: 'bg-red-900/30 border-red-700/50' },
+};
+const MRM_DEFAULT_COLORS = MRM_COLORS.ERROR;
+
 const BAG_RECORDER_MESSAGES = {
   0: 'Идёт запись бэга',
   1: 'Бэг не записывается',
@@ -186,6 +200,25 @@ function LidarSyncCard({ item, onClick }) {
         </span>
       </div>
       <div className="text-xs text-gray-400">Lidar Sync</div>
+    </button>
+  );
+}
+
+function MrmCard({ item, onClick }) {
+  const c = MRM_COLORS[item.message] ?? MRM_DEFAULT_COLORS;
+
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded border px-3 py-2.5 text-left transition-colors hover:brightness-125 cursor-pointer ${c.bg}`}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${c.dot}`} />
+        <span className={`text-sm font-semibold ${c.text}`}>
+          {item.message || 'UNKNOWN'}
+        </span>
+      </div>
+      <div className="text-xs text-gray-400">MRM</div>
     </button>
   );
 }
@@ -584,6 +617,12 @@ export function Diagnostics({ connected }) {
                 />
               ) : isLidarSyncItem(item.name) ? (
                 <LidarSyncCard
+                  key={item.name}
+                  item={item}
+                  onClick={() => setSelectedName(item.name)}
+                />
+              ) : isMrmItem(item.name) ? (
+                <MrmCard
                   key={item.name}
                   item={item}
                   onClick={() => setSelectedName(item.name)}

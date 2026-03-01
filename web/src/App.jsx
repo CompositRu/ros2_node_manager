@@ -42,6 +42,7 @@ function App() {
   }, [server.connected, nodes.refresh]);
 
   const [activeSection, setActiveSection] = useState('dashboard');
+  const [historyTab, setHistoryTab] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [logNode, setLogNode] = useState(null);
 
@@ -64,6 +65,11 @@ function App() {
 
   const handleLogResize = useCallback((newHeight) => {
     setLogHeight(Math.min(MAX_LOG_HEIGHT, Math.max(MIN_LOG_HEIGHT, newHeight)));
+  }, []);
+
+  const handleSectionChange = useCallback((section, options) => {
+    setActiveSection(section);
+    setHistoryTab(options?.tab || null);
   }, []);
 
   return (
@@ -137,7 +143,7 @@ function App() {
         {/* Dashboard Section */}
         {activeSection === 'dashboard' && (
           <div className="flex-1 overflow-hidden">
-            <Dashboard connected={server.connected} onSectionChange={setActiveSection} />
+            <Dashboard connected={server.connected} onSectionChange={handleSectionChange} />
           </div>
         )}
 
@@ -231,7 +237,7 @@ function App() {
         {/* History Section */}
         {activeSection === 'history' && (
           <div className="flex-1 overflow-hidden">
-            <History connected={server.connected} />
+            <History connected={server.connected} initialTab={historyTab} />
           </div>
         )}
 

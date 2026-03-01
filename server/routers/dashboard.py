@@ -30,6 +30,7 @@ async def get_dashboard():
         "nodes": {"active": 0, "inactive": 0, "total": 0},
         "topics_count": 0,
         "services_count": 0,
+        "speed_kmh": None,
     }
 
     conn = app_state.connection
@@ -40,7 +41,7 @@ async def get_dashboard():
     result["docker"]["running"] = True
 
     # Gather data concurrently
-    docker_info, docker_stats, gpu_info, node_counts, topic_count, service_count, cpu_count = await asyncio.gather(
+    docker_info, docker_stats, gpu_info, node_counts, topic_count, service_count, cpu_count, speed = await asyncio.gather(
         _get_docker_info(conn),
         _get_docker_stats(conn),
         _get_gpu_info(conn),
@@ -48,6 +49,7 @@ async def get_dashboard():
         _get_topic_count(conn),
         _get_service_count(conn),
         _get_cpu_count(conn),
+        _get_speed(conn),
     )
 
     # Docker info (uptime)
@@ -79,6 +81,9 @@ async def get_dashboard():
     # Topic/service counts
     result["topics_count"] = topic_count
     result["services_count"] = service_count
+
+    # Speed
+    result["speed_kmh"] = speed
 
     return result
 
@@ -216,3 +221,22 @@ async def _get_cpu_count(conn) -> int:
         return int(output.strip())
     except Exception:
         return 0
+
+
+async def _get_speed(conn) -> float | None:
+    """Get current speed from /localization/kinematic_state (Odometry)."""
+    try:
+        output = await conn.exec_command(
+            "ros2 topic echo /localization/kinematic_state --once --no-arr "
+            "--field twist.twist.linear.x",
+            timeout=3.0,
+        )
+        for line in output.strip().split("\n"):
+            line = line.strip().rstrip("---").strip()
+            if not line:
+                continue
+            speed_ms = float(line)
+            return round(abs(speed_ms) * 3.6, 1)
+    except Exception:
+        pass
+    return None
