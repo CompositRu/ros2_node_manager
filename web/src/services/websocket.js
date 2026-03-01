@@ -30,24 +30,26 @@ export function createNodesStatusSocket(onMessage, onError) {
   return ws;
 }
 
-export function createLogsSocket(nodeName, onMessage, onError, onConnected) {
+export function createLogsSocket(nodeName, onMessage, onError, onConnected, onHistory) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
   const path = nodeName.startsWith('/') ? nodeName.slice(1) : nodeName;
   const url = `${protocol}//${host}/ws/logs/${path}`;
-  
+
   const ws = new WebSocket(url);
-  
+
   ws.onopen = () => {
     console.log(`Logs WebSocket connected for ${nodeName}`);
   };
-  
+
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      
+
       if (data.type === 'connected' && onConnected) {
         onConnected(data.message);
+      } else if (data.type === 'history' && onHistory) {
+        onHistory(data.logs);
       } else if (data.type === 'log') {
         onMessage(data);
       } else if (data.type === 'error' && onError) {
@@ -57,12 +59,12 @@ export function createLogsSocket(nodeName, onMessage, onError, onConnected) {
       console.error('Failed to parse log message:', e);
     }
   };
-  
+
   ws.onerror = (error) => {
     console.error('Logs WebSocket error:', error);
     if (onError) onError(error.message || 'WebSocket error');
   };
-  
+
   ws.onclose = () => {
     console.log(`Logs WebSocket closed for ${nodeName}`);
   };
@@ -70,7 +72,7 @@ export function createLogsSocket(nodeName, onMessage, onError, onConnected) {
   return ws;
 }
 
-export function createUnifiedLogsSocket(onMessage, onError, onConnected) {
+export function createUnifiedLogsSocket(onMessage, onError, onConnected, onHistory) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
   const url = `${protocol}//${host}/ws/logs/all`;
@@ -87,6 +89,8 @@ export function createUnifiedLogsSocket(onMessage, onError, onConnected) {
 
       if (data.type === 'connected' && onConnected) {
         onConnected(data.message);
+      } else if (data.type === 'history' && onHistory) {
+        onHistory(data.logs);
       } else if (data.type === 'log') {
         onMessage(data);
       } else if (data.type === 'error' && onError) {

@@ -175,6 +175,22 @@ async def all_logs_websocket(websocket: WebSocket):
             "message": "Streaming all logs"
         })
 
+        # Send history from in-memory ring buffer
+        history = app_state.log_collector.get_recent_logs(limit=1000, max_age_seconds=300)
+        if history:
+            await websocket.send_json({
+                "type": "history",
+                "logs": [
+                    {
+                        "timestamp": m.timestamp.isoformat(),
+                        "level": m.level,
+                        "node_name": m.node_name,
+                        "message": m.message,
+                    }
+                    for m in history
+                ],
+            })
+
         while True:
             log_msg = await queue.get()
             await websocket.send_json({
@@ -228,6 +244,23 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
             "type": "connected",
             "message": f"Streaming logs for {node_name}"
         })
+
+        # Send history from in-memory ring buffer
+        history = app_state.log_collector.get_recent_logs(
+            node_name=node_name, limit=1000, max_age_seconds=300
+        )
+        if history:
+            await websocket.send_json({
+                "type": "history",
+                "logs": [
+                    {
+                        "timestamp": m.timestamp.isoformat(),
+                        "level": m.level,
+                        "message": m.message,
+                    }
+                    for m in history
+                ],
+            })
 
         while True:
             log_msg = await queue.get()

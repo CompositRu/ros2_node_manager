@@ -2,9 +2,9 @@
 
 import asyncio
 import re
-from datetime import datetime
+from collections import defaultdict, deque
+from datetime import datetime, timedelta
 from typing import Optional, Callable
-from collections import defaultdict
 
 from ..connection import BaseConnection, ConnectionError
 from ..models import LogMessage
@@ -31,6 +31,9 @@ class LogCollector:
 
         # Callback subscribers (for HistoryStore, AlertService)
         self._callbacks: list[Callable[[LogMessage], None]] = []
+
+        # In-memory history ring buffer (all levels, for quick replay on WS connect)
+        self._history: deque[LogMessage] = deque(maxlen=5000)
 
         # Parsing
         self._level_map = {
@@ -90,6 +93,34 @@ class LogCollector:
     # Callback subscriptions (for services: HistoryStore, AlertService)
     # ─────────────────────────────────────────────────────────────────
 
+    def get_recent_logs(
+        self,
+        node_name: Optional[str] = None,
+        limit: int = 1000,
+        max_age_seconds: int = 300,
+    ) -> list[LogMessage]:
+        """Return recent logs from the in-memory ring buffer.
+
+        Args:
+            node_name: Filter by node (smart matching by full or short name). None = all.
+            limit: Max number of messages to return.
+            max_age_seconds: Only include messages newer than this many seconds.
+        """
+        cutoff = datetime.now() - timedelta(seconds=max_age_seconds)
+        result: list[LogMessage] = []
+
+        for msg in self._history:
+            if msg.timestamp < cutoff:
+                continue
+            if node_name:
+                short_sub = node_name.rsplit("/", 1)[-1] if "/" in node_name else node_name
+                short_msg = msg.node_name.rsplit("/", 1)[-1] if "/" in msg.node_name else msg.node_name
+                if msg.node_name != node_name and short_msg != short_sub:
+                    continue
+            result.append(msg)
+
+        return result[-limit:]
+
     def add_callback(self, fn: Callable[[LogMessage], None]) -> None:
         """Register a callback invoked for every log message."""
         self._callbacks.append(fn)
@@ -141,6 +172,9 @@ class LogCollector:
 
     def _dispatch(self, msg: LogMessage) -> None:
         """Fan out a log message to all consumers."""
+        # 0. Store in ring buffer
+        self._history.append(msg)
+
         # 1. Callbacks (HistoryStore, AlertService)
         for cb in self._callbacks:
             try:

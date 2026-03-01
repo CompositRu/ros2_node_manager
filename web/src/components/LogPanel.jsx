@@ -11,21 +11,23 @@ export function LogPanel({ nodeName, onClose, height = 256 }) {
   const logsEndRef = useRef(null);
   const wsRef = useRef(null);
   const pausedLogsRef = useRef([]);
+  const lastHistoryTsRef = useRef(null);
 
   useEffect(() => {
     if (!nodeName) return;
-    
+
     // Reset state for new node
     setLogs([]);
     setStatus('connecting');
     setErrorMsg(null);
     pausedLogsRef.current = [];
-    
+    lastHistoryTsRef.current = null;
+
     // Close previous WebSocket
     if (wsRef.current) {
       wsRef.current.close();
     }
-    
+
     const ws = createLogsSocket(
       nodeName,
       (msg) => {
@@ -34,7 +36,12 @@ export function LogPanel({ nodeName, onClose, height = 256 }) {
           setStatus('connected');
           setErrorMsg(null);
         }
-        
+
+        // Deduplicate: skip real-time messages already covered by history
+        if (lastHistoryTsRef.current && msg.timestamp <= lastHistoryTsRef.current) {
+          return;
+        }
+
         if (paused) {
           pausedLogsRef.current.push(msg);
         } else {
@@ -51,11 +58,18 @@ export function LogPanel({ nodeName, onClose, height = 256 }) {
       () => {
         setStatus('connected');
         setErrorMsg(null);
+      },
+      (historyLogs) => {
+        // Received history batch on connect
+        if (historyLogs.length > 0) {
+          lastHistoryTsRef.current = historyLogs[historyLogs.length - 1].timestamp;
+          setLogs(historyLogs.slice(-1000));
+        }
       }
     );
-    
+
     wsRef.current = ws;
-    
+
     return () => {
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close();
