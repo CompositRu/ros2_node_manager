@@ -16,7 +16,9 @@ set -e
 REMOTE_HOST="${1:?Usage: $0 <host> [user]}"
 REMOTE_USER="${2:-ubuntu}"
 REMOTE_DIR="~/ros2-monitor"
-SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
+CTRL_SOCKET="/tmp/.ssh-deploy-$$"
+SSH_BASE="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
+SSH_OPTS="${SSH_BASE} -o ControlPath=${CTRL_SOCKET}"
 
 # Colors
 RED='\033[0;31m'
@@ -28,6 +30,11 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+cleanup() {
+    ssh -o ControlPath="${CTRL_SOCKET}" -O exit "${REMOTE_USER}@${REMOTE_HOST}" 2>/dev/null || true
+}
+trap cleanup EXIT
+
 # === Pre-flight checks ===
 
 log_info "Starting deployment to ${REMOTE_USER}@${REMOTE_HOST}"
@@ -38,12 +45,10 @@ if [ ! -f "server/main.py" ]; then
     exit 1
 fi
 
-# Check SSH connection
-log_info "Checking SSH connection..."
-if ! ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "echo 'SSH OK'" > /dev/null 2>&1; then
-    log_error "Cannot connect to ${REMOTE_USER}@${REMOTE_HOST}"
-    exit 1
-fi
+# Establish persistent SSH connection (password entered once here)
+log_info "Establishing SSH connection..."
+ssh -fNM ${SSH_BASE} -o ControlMaster=yes -o ControlPath="${CTRL_SOCKET}" "${REMOTE_USER}@${REMOTE_HOST}"
+log_info "SSH connection established"
 
 # === Step 1: Build Frontend ===
 

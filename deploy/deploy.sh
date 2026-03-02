@@ -16,7 +16,9 @@ set -e
 REMOTE_HOST="${1:?Usage: $0 <host> [user]}"
 REMOTE_USER="${2:-ubuntu}"
 REMOTE_DIR="/opt/ros2-monitor"
-SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
+CTRL_SOCKET="/tmp/.ssh-deploy-$$"
+SSH_BASE="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
+SSH_OPTS="${SSH_BASE} -o ControlPath=${CTRL_SOCKET}"
 
 # Colors
 RED='\033[0;31m'
@@ -38,6 +40,11 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+cleanup() {
+    ssh -o ControlPath="${CTRL_SOCKET}" -O exit "${REMOTE_USER}@${REMOTE_HOST}" 2>/dev/null || true
+}
+trap cleanup EXIT
+
 # === Pre-flight checks ===
 
 log_info "Starting deployment to ${REMOTE_USER}@${REMOTE_HOST}"
@@ -48,12 +55,10 @@ if [ ! -f "server/main.py" ]; then
     exit 1
 fi
 
-# Check SSH connection
-log_info "Checking SSH connection..."
-if ! ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "echo 'SSH OK'" > /dev/null 2>&1; then
-    log_error "Cannot connect to ${REMOTE_USER}@${REMOTE_HOST}"
-    exit 1
-fi
+# Establish persistent SSH connection (password entered once here)
+log_info "Establishing SSH connection..."
+ssh -fNM ${SSH_BASE} -o ControlMaster=yes -o ControlPath="${CTRL_SOCKET}" "${REMOTE_USER}@${REMOTE_HOST}"
+log_info "SSH connection established"
 
 # === Step 1: Build Frontend ===
 
@@ -72,10 +77,10 @@ if [ ! -d "web/dist" ]; then
 fi
 log_info "Frontend build complete"
 
-# === Step 2: Create remote directory ===
+# === Step 2: Create remote directory (sudo) ===
 
 log_info "Creating remote directory..."
-ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "sudo mkdir -p ${REMOTE_DIR} && sudo chown ${REMOTE_USER}:${REMOTE_USER} ${REMOTE_DIR}"
+ssh ${SSH_OPTS} -tt "${REMOTE_USER}@${REMOTE_HOST}" "sudo mkdir -p ${REMOTE_DIR} && sudo chown ${REMOTE_USER}:${REMOTE_USER} ${REMOTE_DIR}"
 
 # === Step 3: Sync files ===
 
@@ -120,39 +125,19 @@ pip install -r server/requirements.txt
 echo "Python environment ready"
 REMOTE_SCRIPT
 
-# === Step 5: Install systemd service ===
+# === Step 5: Install systemd service + restart (sudo) ===
 
-log_info "Installing systemd service..."
-ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" << 'REMOTE_SCRIPT'
-set -e
-
-# Copy service file
-sudo cp /opt/ros2-monitor/deploy/ros2-monitor.service /etc/systemd/system/
-
-# Update user in service file to match current user
-sudo sed -i "s/User=ubuntu/User=$(whoami)/" /etc/systemd/system/ros2-monitor.service
-sudo sed -i "s/Group=ubuntu/Group=$(whoami)/" /etc/systemd/system/ros2-monitor.service
-
-# Reload systemd
-sudo systemctl daemon-reload
-
-# Enable service
-sudo systemctl enable ros2-monitor
-
-echo "Systemd service installed"
-REMOTE_SCRIPT
-
-# === Step 6: Restart service ===
-
-log_info "Restarting ros2-monitor service..."
-ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "sudo systemctl restart ros2-monitor"
-
-# Wait a bit for service to start
-sleep 2
-
-# Check status
-log_info "Checking service status..."
-ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "sudo systemctl status ros2-monitor --no-pager" || true
+log_info "Installing systemd service and starting..."
+ssh ${SSH_OPTS} -tt "${REMOTE_USER}@${REMOTE_HOST}" "\
+sudo cp ${REMOTE_DIR}/deploy/ros2-monitor.service /etc/systemd/system/ && \
+sudo sed -i \"s/User=ubuntu/User=\$(whoami)/\" /etc/systemd/system/ros2-monitor.service && \
+sudo sed -i \"s/Group=ubuntu/Group=\$(whoami)/\" /etc/systemd/system/ros2-monitor.service && \
+sudo systemctl daemon-reload && \
+sudo systemctl enable ros2-monitor && \
+sudo systemctl restart ros2-monitor && \
+sleep 2 && \
+echo '' && \
+sudo systemctl status ros2-monitor --no-pager || true"
 
 # === Done ===
 

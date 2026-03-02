@@ -61,6 +61,12 @@ class LocalDockerConnection(BaseConnection):
                 if "No such container" in error_msg:
                     self._connected = False
                     raise ContainerNotFoundError(f"Container '{self.container}' not found or stopped")
+                if self._env_cached and self._ENV_CACHE_FILE in error_msg:
+                    print(f"⚠ ROS env cache lost, falling back to full sourcing")
+                    self._env_cached = False
+                    result = await self.exec_command(cmd, timeout)
+                    asyncio.ensure_future(self.cache_ros_env())
+                    return result
                 raise ConnectionError(error_msg)
 
             return stdout.decode()
