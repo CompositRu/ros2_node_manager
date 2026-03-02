@@ -1,5 +1,6 @@
 """Tram Monitoring System - Main Application."""
 
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +10,23 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+
+
+# Suppress noisy uvicorn access logs for polling endpoints
+class _QuietAccessFilter(logging.Filter):
+    """Downgrade frequent polling endpoints from INFO to DEBUG."""
+    _quiet_paths = ("/api/debug/stats", "/health", "/api/health")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if any(p in msg for p in self._quiet_paths):
+            if record.levelno <= logging.INFO:
+                record.levelno = logging.DEBUG
+                record.levelname = "DEBUG"
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_QuietAccessFilter())
 
 # from .config import settings, load_servers_config, get_server_by_id
 from .models import ServerConfig, ServerType
