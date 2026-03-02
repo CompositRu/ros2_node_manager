@@ -90,9 +90,10 @@ async def connect_to_server(
     
     node_service = NodeService(connection, persister)
 
-    # Initialize alert service
+    # Initialize alert service (shares node_service cache to avoid duplicate polling)
     alert_config = load_alert_config()
     alert_service = AlertService(connection, alert_config)
+    alert_service.node_service = node_service
     await alert_service.start()
 
     # Initialize topic hz monitor (on-demand, no groups active by default)

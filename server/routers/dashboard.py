@@ -242,23 +242,41 @@ async def _get_node_counts(app_state) -> dict:
     return {"active": 0, "inactive": 0, "total": 0}
 
 
+# TTL cache for topic/service counts (avoid redundant ros2 CLI calls)
+_topic_cache: tuple[float, int] = (0, 0)   # (timestamp, count)
+_service_cache: tuple[float, int] = (0, 0)  # (timestamp, count)
+_COUNT_CACHE_TTL = 5.0  # seconds
+
+
 async def _get_topic_count(conn) -> int:
-    """Get total number of ROS2 topics."""
+    """Get total number of ROS2 topics (cached for 5s)."""
+    global _topic_cache
+    now = time.time()
+    if now - _topic_cache[0] < _COUNT_CACHE_TTL:
+        return _topic_cache[1]
     try:
         topics = await conn.ros2_topic_list()
-        return len(topics)
+        count = len(topics)
+        _topic_cache = (now, count)
+        return count
     except Exception:
-        return 0
+        return _topic_cache[1]  # return stale cache on error
 
 
 async def _get_service_count(conn) -> int:
-    """Get total number of ROS2 services (excluding technical)."""
+    """Get total number of ROS2 services, excluding technical (cached for 5s)."""
+    global _service_cache
+    now = time.time()
+    if now - _service_cache[0] < _COUNT_CACHE_TTL:
+        return _service_cache[1]
     from .services import _is_technical_service
     try:
         services = await conn.ros2_service_list()
-        return sum(1 for s in services if not _is_technical_service(s))
+        count = sum(1 for s in services if not _is_technical_service(s))
+        _service_cache = (now, count)
+        return count
     except Exception:
-        return 0
+        return _service_cache[1]  # return stale cache on error
 
 
 async def _get_cpu_count(conn) -> int:

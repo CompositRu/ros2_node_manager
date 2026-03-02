@@ -23,14 +23,14 @@ function StatCard({ label, value, unit }) {
 }
 
 const HELP_ITEMS = [
-  { label: 'CPU', desc: 'Загрузка CPU серверным процессом. Норма: < 5%' },
-  { label: 'RSS', desc: 'Физическая память сервера. Норма: 50\u2013150 МБ. Постоянный рост = утечка памяти' },
+  { label: 'CPU', desc: 'Загрузка CPU: сервер + все дочерние процессы (docker exec, ros2 CLI). Норма: < 5%' },
+  { label: 'RSS', desc: 'Физическая память: сервер + дочерние процессы. Норма: 50\u2013200 МБ. Постоянный рост = утечка' },
   { label: 'Exec', desc: 'Активные разовые docker exec команды (ros2 node list и т.д.). Норма: 0\u20133' },
   { label: 'Streams', desc: 'Активные потоковые подпроцессы (ros2 topic echo). 1 на каждый открытый лог-стрим' },
   { label: 'WebSockets', desc: 'Активные подключения браузера. 1\u20133 на каждую открытую вкладку (status + alerts + logs)' },
   { label: 'Uptime', desc: 'Время работы сервера с последнего перезапуска' },
   { label: 'Commands', desc: 'Всего команд выполнено с момента запуска сервера' },
-  { label: 'Threads', desc: 'Потоки ОС в серверном процессе. Норма: 5\u201315' },
+  { label: 'Children', desc: 'Активные дочерние процессы (docker exec). Высокое число = много параллельных ROS2 команд' },
 ];
 
 export function AppStats() {
@@ -80,7 +80,7 @@ export function AppStats() {
           <StatCard label="WebSockets" value={stats?.websockets?.total} />
           <StatCard label="Uptime" value={formatUptime(stats?.uptime_seconds)} />
           <StatCard label="Commands" value={stats?.subprocesses?.total_commands} />
-          <StatCard label="Threads" value={stats?.process?.threads} />
+          <StatCard label="Children" value={stats?.process?.children} />
         </div>
       </div>
     </div>

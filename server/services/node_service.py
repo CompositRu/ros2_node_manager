@@ -1,6 +1,7 @@
 """Node service for managing ROS2 nodes."""
 
 import asyncio
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -11,10 +12,6 @@ from ..models import (
     NodesResponse, NodeSummary, NodeDetailResponse
 )
 from ..config import settings
-from ..models import (
-    NodeInfo, NodeType, NodeStatus, LifecycleState,
-    NodesResponse, NodeSummary, NodeDetailResponse
-)
 
 # Паттерны для фильтрации технических нод
 IGNORED_NODE_PATTERNS = [
@@ -34,64 +31,89 @@ def is_technical_node(node_name: str) -> bool:
 
 class NodeService:
     """Service for managing ROS2 nodes."""
-    
+
+    _BASE_INTERVAL = 3.0   # min seconds between refreshes
+    _MAX_INTERVAL = 60.0   # max backoff on repeated failures
+
     def __init__(self, connection: BaseConnection, persister: StatePersister):
         self.conn = connection
         self.persister = persister
         self._type_check_tasks: dict[str, asyncio.Task] = {}
-    
+        # Rate-limiting & backoff
+        self._last_refresh: float = 0
+        self._refresh_interval: float = self._BASE_INTERVAL
+        self._consecutive_failures: int = 0
+
     async def refresh_nodes(self) -> NodesResponse:
         """
         Refresh node list from ROS2 and update state.
-        Returns current nodes summary.
+        Rate-limited: returns cached data if called within _refresh_interval.
+        Backs off exponentially on repeated failures.
         """
+        now = time.monotonic()
+        if now - self._last_refresh < self._refresh_interval:
+            return self._build_nodes_response()
+
         # Get current running nodes
         try:
             running_nodes = await self.conn.ros2_node_list()
             # Filter out technical nodes
             running_nodes = [n for n in running_nodes if not is_technical_node(n)]
+            # Success — reset backoff
+            self._consecutive_failures = 0
+            self._refresh_interval = self._BASE_INTERVAL
         except ConnectionError:
             running_nodes = []
-        
+            # Backoff: 3 → 6 → 12 → 24 → 48 → 60 (max)
+            self._consecutive_failures += 1
+            self._refresh_interval = min(
+                self._BASE_INTERVAL * (2 ** self._consecutive_failures),
+                self._MAX_INTERVAL,
+            )
+
+        self._last_refresh = now
         running_set = set(running_nodes)
-        
-        # Refresh services cache once for all type checks
-        await self.conn._refresh_services_cache()
-        
+
+        # Refresh services cache once for all type checks (with reduced timeout)
+        try:
+            await self.conn._refresh_services_cache()
+        except Exception:
+            pass
+
         # Track new nodes that need type checking
         new_nodes = []
-        
+
         # Update existing nodes and add new ones
         for node_name in running_nodes:
             existing = self.persister.get_node(node_name)
-            
+
             if existing:
                 self.persister.set_node_status(node_name, NodeStatus.ACTIVE)
             else:
                 node = self.persister.add_new_node(node_name)
                 new_nodes.append(node_name)
-        
+
         # Mark missing nodes as inactive
         for node_name, node in self.persister.get_all_nodes().items():
             if node_name not in running_set and node.status == NodeStatus.ACTIVE:
                 self.persister.set_node_status(node_name, NodeStatus.INACTIVE)
-        
+
         # Check types for new nodes (fast now, using cached services)
         for node_name in new_nodes:
             try:
                 is_lifecycle = await self.conn.is_lifecycle_node(node_name)
                 node_type = NodeType.LIFECYCLE if is_lifecycle else NodeType.REGULAR
                 self.persister.set_node_type(node_name, node_type)
-                
+
                 if is_lifecycle:
                     # Get lifecycle state - this is still slow, do it in background
                     self._schedule_lifecycle_state_check(node_name)
             except Exception as e:
                 print(f"Error checking type for {node_name}: {e}")
-        
+
         # Save state
         self.persister.save()
-        
+
         # Build response
         return self._build_nodes_response()
 

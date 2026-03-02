@@ -24,24 +24,25 @@ class AlertService:
     def __init__(self, connection: BaseConnection, config: AlertConfig):
         self.conn = connection
         self.config = config
-        
+
+        # External refs (set after init)
+        self.node_service = None  # set by main.py — share node list cache
+        self.history_store = None
+
         # Node status tracking
         self._node_statuses: Dict[str, NodeStatus] = {}
-        
+
         # Alert deduplication: key -> last_alert_time
         self._alert_cooldowns: Dict[str, datetime] = {}
-        
+
         # Alert queue for WebSocket subscribers
         self._alert_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
-        
+
         # Subscribers (callbacks)
         self._subscribers: Dict[str, Callable[[Alert], None]] = {}
-        
+
         # Known missing topics (для отслеживания восстановления)
         self._missing_topics: Set[str] = set()
-
-        # History persistence (set externally after init)
-        self.history_store = None
 
         # Pre-compile error patterns for on_log_message callback
         self._compiled_patterns: list[tuple[re.Pattern, str]] = []
@@ -258,19 +259,27 @@ class AlertService:
     async def _monitor_nodes_loop(self) -> None:
         """
         Background task to monitor node statuses.
-        This runs independently of WebSocket connections.
+        Uses NodeService cached data instead of calling ros2 node list directly.
         """
         while self._running:
             try:
-                # Get current nodes
-                nodes = await self.conn.ros2_node_list()
-                current_nodes = set(nodes)
+                # Use NodeService cached node list (no extra ros2 CLI call)
+                if self.node_service:
+                    response = self.node_service.get_cached_nodes()
+                    current_nodes = {
+                        n.name for n in response.nodes
+                        if n.status == NodeStatus.ACTIVE
+                    }
+                else:
+                    # Fallback: call ros2 directly (shouldn't happen normally)
+                    nodes = await self.conn.ros2_node_list()
+                    current_nodes = set(nodes)
 
                 # Check for nodes that disappeared
                 for node_name, status in list(self._node_statuses.items()):
                     if status == NodeStatus.ACTIVE and node_name not in current_nodes:
                         self.update_node_status(node_name, NodeStatus.INACTIVE)
-                
+
                 # Check for nodes that appeared
                 for node_name in current_nodes:
                     prev_status = self._node_statuses.get(node_name)
@@ -280,7 +289,7 @@ class AlertService:
                         # New node, just track it
                         self._node_statuses[node_name] = NodeStatus.ACTIVE
 
-                await asyncio.sleep(5)  # Check every 5 seconds
+                await asyncio.sleep(5)
 
             except asyncio.CancelledError:
                 break
@@ -289,9 +298,11 @@ class AlertService:
                 await asyncio.sleep(5)
 
     async def _monitor_missing_topics(self) -> None:
-        """Monitor for missing important topics."""
+        """Monitor for missing important topics. Backs off on repeated failures."""
         if not self.config.important_topics:
             return
+
+        interval = 10  # base interval in seconds
 
         while self._running:
             try:
@@ -328,13 +339,15 @@ class AlertService:
                             cooldown_key=f"topic_recovered:{topic}"
                         )
 
-                await asyncio.sleep(10)  # Check every 10 seconds
+                interval = 10  # reset on success
+                await asyncio.sleep(interval)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 print(f"Error monitoring topics: {e}")
-                await asyncio.sleep(10)
+                interval = min(interval * 2, 120)  # backoff: 10→20→40→80→120s max
+                await asyncio.sleep(interval)
 
     async def _monitor_topic_values(self) -> None:
         """Monitor specific topics for alert values."""

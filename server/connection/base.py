@@ -63,9 +63,18 @@ class BaseConnection(ABC):
         pass
 
     def _ros_env(self) -> str:
-        """Build ROS environment setup commands."""
+        """Build ROS environment setup commands.
+
+        ROS_DOMAIN_ID detection order:
+        1. Config file ($ros_workspace/.ros_domain_id)
+        2. Auto-detect from running ros2 daemon process args (--ros-domain-id N)
+        3. Default to 0
+        """
+        ws = self.ros_workspace or "$HOME/tram.autoware"
         return (
-            'ROS_DOMAIN_ID=$(cat $HOME/tram.autoware/.ros_domain_id 2>/dev/null || echo 0) && '
+            f'_df=$(cat {ws}/.ros_domain_id 2>/dev/null); '
+            '_dp=$(ps -eo args 2>/dev/null | grep -o "ros-domain-id [0-9][0-9]*" | head -1 | cut -d" " -f2); '
+            'ROS_DOMAIN_ID=${_df:-${_dp:-0}} && '
             'export ROS_DOMAIN_ID && '
             'export ROS_LOCALHOST_ONLY=1 && '
             'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && '
@@ -94,7 +103,12 @@ class BaseConnection(ABC):
             # First call — uses the slow path (full sourcing) since cache is empty
             await self.exec_command(cmd, timeout=60)
             self._env_cached = True
-            print(f"🔧 Cached ROS env to {self._ENV_CACHE_FILE}")
+            # Log detected ROS_DOMAIN_ID for debugging
+            try:
+                domain_id = (await self.exec_command("echo $ROS_DOMAIN_ID", timeout=5)).strip()
+                print(f"🔧 Cached ROS env to {self._ENV_CACHE_FILE} (ROS_DOMAIN_ID={domain_id})")
+            except Exception:
+                print(f"🔧 Cached ROS env to {self._ENV_CACHE_FILE}")
         except Exception as e:
             print(f"⚠ Failed to cache ROS env: {e}")
             self._env_cached = False
@@ -120,9 +134,9 @@ class BaseConnection(ABC):
 
     # === ROS2 CLI wrappers ===
     
-    async def ros2_node_list(self) -> list[str]:
+    async def ros2_node_list(self, timeout: float = 10.0) -> list[str]:
         """Get list of running nodes."""
-        output = await self.exec_command("ros2 node list")
+        output = await self.exec_command("ros2 node list", timeout=timeout)
         # print(f"DEBUG ros2_node_list raw output: '{output}'")  # <-- добавь это
         # print(f"DEBUG output repr: {repr(output)}")  # <-- и это
         nodes = []
@@ -171,9 +185,9 @@ class BaseConnection(ABC):
             traceback.print_exc()
             return {}
     
-    async def ros2_topic_list(self) -> list[dict]:
+    async def ros2_topic_list(self, timeout: float = 10.0) -> list[dict]:
         """Get list of all topics with their message types."""
-        output = await self.exec_command("ros2 topic list -t")
+        output = await self.exec_command("ros2 topic list -t", timeout=timeout)
         topics = []
         for line in output.strip().split("\n"):
             line = line.strip()
@@ -232,9 +246,9 @@ class BaseConnection(ABC):
 
         return result
 
-    async def ros2_service_list(self) -> list[str]:
+    async def ros2_service_list(self, timeout: float = 10.0) -> list[str]:
         """Get list of services."""
-        output = await self.exec_command("ros2 service list")
+        output = await self.exec_command("ros2 service list", timeout=timeout)
         services = [s.strip() for s in output.strip().split("\n") if s.strip()]
         return services
 
@@ -281,7 +295,7 @@ class BaseConnection(ABC):
     async def _refresh_services_cache(self) -> None:
         """Refresh cached list of services."""
         try:
-            output = await self.exec_command("ros2 service list", timeout=30.0)
+            output = await self.exec_command("ros2 service list", timeout=10.0)
             lines = output.strip().split('\n')
             self._services_cache = set(line.strip() for line in lines if line.strip().startswith('/'))
             # print(f"DEBUG: Cached {len(self._services_cache)} services")
