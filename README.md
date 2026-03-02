@@ -1,187 +1,322 @@
 # Tram Monitoring System
 
-Web-интерфейс для мониторинга и управления ROS2 нодами в Docker контейнерах.
+Веб-интерфейс для мониторинга ROS2 нод в Docker контейнерах на автономных трамваях. Подключается к Docker контейнеру с ROS2 через локальный `docker exec` или удалённо через SSH.
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10+-green)
 ![React](https://img.shields.io/badge/react-18-blue)
+![FastAPI](https://img.shields.io/badge/fastapi-0.100+-teal)
+
+## Обзор
+
+Интерфейс в стиле VS Code: панель навигации слева, рабочая область справа. Восемь секций: Dashboard, Diagnostics, Nodes, Topics, Services, Logs, History, App Stats.
+
+Подключается к одному из настроенных серверов (Docker-контейнеров). Первый сервер подключается автоматически при старте.
+
+---
 
 ## Возможности
 
-- 🌳 **Дерево нод** по namespace с подсчётом количества
-- 🔄 **Real-time обновления** статуса нод через WebSocket
-- 📊 **Счётчики**: total | active | inactive
-- 💾 **Сохранение истории** — inactive ноды не удаляются
-- 🔌 **Локальный Docker** и **SSH подключение** к удалённым серверам
-- ⚙️ **Параметры ноды**: просмотр всех параметров
-- 📡 **Subscribers/Publishers**: что нода слушает и публикует
-- 🛑 **Shutdown** для lifecycle нод
-- 💀 **Kill** для обычных нод (с предупреждением)
-- 📜 **Логи** в реальном времени из /rosout
-- 🔔 **Уведомления об ошибках** — всплывающие окна в правом нижнем углу
+### Dashboard
+
+Сводная панель состояния системы:
+
+- **Статус автопилота** — баннер с цветовой индикацией (зелёный — работает, жёлтый — частично, красный — критический, серый — offline). Анимированная точка пульсации.
+- **Скорость** — текущая скорость в км/ч из `/localization/kinematic_state`. Отображается только при работающем автопилоте.
+- **Ресурсы** — CPU%, GPU%, RAM с цветными прогресс-барами (красный >90%, жёлтый >70%, зелёный <70%).
+- **Статистика** — количество нод (active/total), топиков, сервисов, аптайм контейнера.
+- **Недавние алерты** — последние алерты с цветовой кодировкой по severity.
+- **Быстрый доступ** — кнопки навигации к основным секциям.
+
+### Diagnostics
+
+Мониторинг диагностик из топика `/diagnostics` (DiagnosticArray):
+
+- **Виджеты ресурсов** — три кольцевых индикатора: CPU (температура + загрузка), GPU (температура + VRAM), RAM (использовано / всего).
+- **Карточки диагностик** — адаптивная сетка (2–5 колонок). Каждая карточка: статус (OK/WARN/ERROR/STALE), имя, сообщение, ключевые метрики.
+- **Специальные карточки**:
+  - Localization (NDT) — расширенная карточка с метриками: iterations, likelihood, transform probability, skip pub. Цветовая кодировка по пороговым значениям.
+  - Bag Recorder — статус записи.
+  - Lidar Sync — синхронизация лидаров.
+  - MRM — статус минимально-рискового манёвра (NORMAL/ERROR/OPERATING).
+- **Детальный вид** — по клику: все key-value пары, hardware ID, история последних 20 записей.
+- **Фильтры** — по уровню (OK/WARN/ERROR/STALE), поиск по имени. Счётчики по каждому уровню.
+- **Стриминг в реальном времени** через WebSocket с индикатором подключения.
+
+### Nodes
+
+Управление и мониторинг ROS2 нод:
+
+- **Дерево нод** — иерархия по namespace с подсчётом (active/total) на каждом уровне. Раскрытие/сворачивание всех веток.
+- **Индикаторы** — зелёная точка (active), серая (inactive), фиолетовая полуточка (lifecycle).
+- **Детальная панель** — по клику на ноду:
+  - Статус, тип, lifecycle state.
+  - Параметры (подгрузка по требованию).
+  - Subscribers (cyan), Publishers (зелёный), Services (жёлтый) — сворачиваемые секции.
+- **Lifecycle-управление** — кнопки: Configure, Activate, Deactivate, Cleanup, Shutdown. Доступны для lifecycle-нод.
+- **Kill** — для обычных нод (с подтверждением).
+- **Групповые действия** — правый клик на namespace: shutdown всех lifecycle-нод или kill всех нод в ветке.
+- **Логи ноды** — выдвижная панель снизу с real-time стримингом из /rosout. Пауза/продолжение, авто-прокрутка, цветовая кодировка по уровню (DEBUG/INFO/WARN/ERROR/FATAL).
+- **Обновления** — статус нод обновляется каждые 5 секунд через WebSocket.
+
+Технические ноды (transform_listener, ros2cli, daemon, launch_ros) скрыты из отображения.
+
+### Topics
+
+Два режима просмотра:
+
+**Groups** — конфигурированные группы топиков (из `topic_groups.yaml`):
+- Карточки групп с общим префиксом.
+- Кнопка Hz — включает мониторинг частоты публикации (shared между клиентами, без дублирования процессов).
+- Кнопка Echo — стриминг сообщений группы. Панель снизу: тема + YAML-данные, пауза, очистка.
+
+**Tree** — все топики в виде дерева по namespace:
+- Фильтр по имени или типу сообщения.
+- На каждом топике: кнопка Info (тип, publishers, subscribers), Hz (частота), Echo (стриминг).
+- Echo с фильтрацией полей — чипы для скрытия/показа отдельных полей YAML.
+
+### Services
+
+Просмотр и вызов ROS2 сервисов:
+
+- **Дерево сервисов** — иерархия по namespace, оранжевый индикатор «S».
+- **Info** — тип сервиса, структура request и response полей.
+- **Call** — редактор YAML-запроса с автозаполнением шаблона (типы полей: bool, int, string и т.д.). Выполнение вызова и просмотр ответа.
+- **Фильтр** — поиск по имени или типу. Технические сервисы (lifecycle, parameters, actions) скрыты по умолчанию.
+
+### Logs
+
+Единый поток логов со всех нод (/rosout):
+
+- Цветовая кодировка: DEBUG (серый), INFO (синий), WARN (жёлтый), ERROR (красный), FATAL (красный).
+- Фильтры по уровню и имени ноды.
+- Пауза/продолжение с индикатором буферизованных сообщений.
+- Авто-прокрутка, очистка.
+- При подключении — replay истории (до 1000 записей, не старше 5 минут).
+
+### History
+
+Персистентная история с хранением в SQLite:
+
+**Log History**:
+- Фильтры: уровень, имя ноды, полнотекстовый поиск по сообщению.
+- Пагинация с навигацией по страницам.
+- Экспорт в JSON или текстовый формат.
+- Хранение до 50 000 записей (уровень WARN и выше).
+
+**Alert History**:
+- Фильтры: тип алерта, severity, имя ноды.
+- Карточки с цветовой полосой по severity.
+- Бейджи: тип (зелёный для recovered, красный для inactive/missing), severity, нода.
+- Хранение до 10 000 записей.
+
+### App Stats
+
+Внутренние метрики сервера:
+
+- CPU% (сервер + подпроцессы), RSS (физическая память).
+- Количество активных docker exec, стримов, WebSocket-соединений.
+- Аптайм сервера, общее количество выполненных команд, дочерние процессы.
+- Справка с нормами для каждой метрики.
+
+### Алерты
+
+Система алертов в реальном времени (настраивается в `alerts.yaml`):
+
+| Тип | Описание |
+|-----|----------|
+| Node Inactive | Нода перешла в INACTIVE |
+| Node Recovered | Нода снова ACTIVE |
+| Missing Topic | Важный топик отсутствует |
+| Topic Recovered | Топик появился |
+| Error Pattern | Regex-паттерн найден в логах |
+| Topic Value | Критическое значение в топике |
+
+Дедупликация с настраиваемым cooldown (по умолчанию 60 сек). Toast-уведомления в правом нижнем углу (макс. 5, автоскрытие через 7 сек).
+
+---
+
+## Подключение
+
+Два типа подключения к Docker-контейнеру с ROS2:
+
+- **Local** — `docker exec` на локальной машине.
+- **SSH** — `docker exec` через SSH-туннель (asyncssh). Поддержка ключей и пароля.
+
+ROS2 окружение: автоматический source `/opt/ros/humble/setup.bash`, определение `ROS_DOMAIN_ID` из конфига или из аргументов запущенных процессов. Кэширование env-переменных (~1 сек вместо ~20 сек).
+
+---
 
 ## Быстрый старт
 
-### 1. Установка зависимостей
+### Установка
 
 ```bash
 # Backend
 cd ros2_node_manager
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# или: venv\Scripts\activate  # Windows
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
 # Frontend
-cd web
-npm install
+cd web && npm install
 ```
 
-### 2. Настройка
+### Настройка
 
-Отредактируйте `config/servers.yaml`:
-
+`config/servers.yaml` — серверы:
 ```yaml
 servers:
   - id: local
     name: "Local Docker"
     type: local
-    container: tram_autoware  # Имя вашего контейнера
+    container: tram_autoware
 
-  # Для удалённого сервера:
   - id: remote
-    name: "Remote Server"
+    name: "Remote Tram"
     type: ssh
     host: 192.168.1.100
     user: ubuntu
     container: tram_autoware
     ssh_key: ~/.ssh/id_rsa
-
-# Настройка уведомлений
-alerts:
-  enabled: true
-  important_topics: []      # Топики, которые должны существовать
-  error_patterns: []        # Паттерны ошибок в /rosout
-  monitored_topics: []      # Топики для мониторинга значений
 ```
 
-### 3. Запуск
+`config/topic_groups.yaml` — группы топиков для мониторинга Hz и echo:
+```yaml
+topic_groups:
+  - id: lidar_raw
+    name: "LiDAR Raw"
+    topics:
+      - /sensing/lidar/top/packets
+```
 
-**Development mode (два терминала):**
+`config/alerts.yaml` — правила алертов:
+```yaml
+enabled: true
+cooldown_seconds: 60
+important_topics:
+  - /perception/lidar/pointcloud
+error_patterns:
+  - pattern: "FATAL"
+    severity: critical
+monitored_topics:
+  - topic: /system/emergency
+    field: data
+    alert_on_value: true
+```
 
+### Запуск
+
+**Development** (два терминала):
 ```bash
-# Терминал 1: Backend
-cd ros2_node_manager
-source venv/bin/activate
+# Backend
 uvicorn server.main:app --reload --port 8080
 
-# Терминал 2: Frontend
-cd ros2_node_manager/web
-npm run dev
+# Frontend
+cd web && npm run dev
 ```
+UI: http://localhost:3000
 
-Откройте http://localhost:3000
-
-**Production mode:**
-
+**Production**:
 ```bash
-# Собрать frontend
-cd web
-npm run build
-
-# Запустить backend (будет раздавать статику)
-cd ..
+cd web && npm run build && cd ..
 uvicorn server.main:app --host 0.0.0.0 --port 8080
 ```
+UI: http://localhost:8080
 
-Откройте http://localhost:8080
+---
 
-## Структура проекта
+## Деплой на трамвай
 
+**Простой деплой** (без systemd):
+```bash
+./deploy/deploy-simple.sh <host> [user]       # Копирует код
+./deploy/start-remote.sh <host> [user]         # Запускает сервер через SSH
 ```
-ros2_node_manager/
-├── server/                    # Backend (FastAPI)
-│   ├── connection/           # Подключения (local, ssh)
-│   ├── services/             # Бизнес-логика
-│   ├── state/                # Персистентность
-│   ├── routers/              # API endpoints
-│   ├── models.py             # Pydantic модели
-│   ├── config.py             # Конфигурация
-│   └── main.py               # Точка входа
-├── web/                       # Frontend (React)
-│   └── src/
-│       ├── components/       # React компоненты
-│       ├── hooks/            # Custom hooks
-│       └── services/         # API клиент
-├── config/
-│   └── servers.yaml          # Конфигурация серверов
-├── data/                      # Сохранённое состояние (gitignore)
-├── requirements.txt
-├── ROADMAP.md                 # План развития
-└── README.md
+
+**Полный деплой** (с systemd):
+```bash
+./deploy/deploy.sh <host> [user]               # Копирует, ставит в автозагрузку, запускает
 ```
+
+**Управление**:
+```bash
+./deploy/stop.sh                               # Остановить (локально)
+./deploy/start.sh                              # Запустить (локально)
+./deploy/update.sh                             # Обновить код и перезапустить
+./deploy/uninstall-remote.sh <host> [user]     # Убрать из systemd
+./deploy/uninstall-remote.sh <host> [user] --purge  # + удалить файлы
+```
+
+---
 
 ## API
 
-### REST API
+### REST
 
-| Endpoint | Method | Описание |
-|----------|--------|----------|
-| `/api/servers` | GET | Список серверов |
-| `/api/servers/connect` | POST | Подключиться к серверу |
-| `/api/servers/disconnect` | POST | Отключиться |
-| `/api/nodes` | GET | Список нод |
-| `/api/nodes/{name}` | GET | Детали ноды |
-| `/api/nodes/{name}/shutdown` | POST | Выключить ноду |
-| `/health` | GET | Статус сервера |
+| Endpoint | Описание |
+|----------|----------|
+| `GET /api/servers` | Список серверов |
+| `POST /api/servers/connect` | Подключиться к серверу |
+| `POST /api/servers/disconnect` | Отключиться |
+| `GET /api/nodes` | Список нод (active/inactive/total) |
+| `GET /api/nodes/{name}` | Детали ноды |
+| `GET /api/nodes/{name}/params` | Параметры ноды |
+| `POST /api/nodes/{name}/lifecycle` | Lifecycle-переход |
+| `POST /api/nodes/{name}/shutdown` | Остановить ноду |
+| `POST /api/nodes/group/action` | Групповое действие по namespace |
+| `GET /api/topics/list` | Список топиков |
+| `GET /api/topics/info/{topic}` | Info топика (publishers/subscribers) |
+| `GET /api/topics/groups` | Группы топиков с Hz |
+| `POST /api/topics/groups/{id}/hz` | Вкл/выкл Hz мониторинг |
+| `GET /api/services/list` | Список сервисов |
+| `GET /api/services/interface/{type}` | Интерфейс сервиса |
+| `POST /api/services/call/{name}` | Вызов сервиса |
+| `GET /api/dashboard` | Данные для Dashboard |
+| `GET /api/history/logs` | История логов (с фильтрами и пагинацией) |
+| `GET /api/history/alerts` | История алертов |
+| `GET /api/history/logs/export` | Экспорт логов (JSON/text) |
+| `GET /api/debug/stats` | Метрики приложения |
 
 ### WebSocket
 
 | Endpoint | Описание |
 |----------|----------|
-| `/ws/nodes/status` | Real-time статус нод |
-| `/ws/logs/{node_name}` | Стрим логов ноды |
-| `/ws/alerts` | Уведомления об ошибках |
+| `/ws/nodes/status` | Статус нод (каждые 5 сек) |
+| `/ws/logs/all` | Все логи из /rosout |
+| `/ws/logs/{node}` | Логи конкретной ноды |
+| `/ws/diagnostics` | Диагностики |
+| `/ws/alerts` | Алерты |
+| `/ws/topics/hz` | Hz всех активных групп |
+| `/ws/topics/hz-single/{topic}` | Hz одного топика |
+| `/ws/topics/echo/{group_id}` | Echo группы топиков |
+| `/ws/topics/echo-single/{topic}` | Echo одного топика |
 
-## Типы нод
+---
 
-| Тип | Описание | Действия |
-|-----|----------|----------|
-| `lifecycle` | Lifecycle нода | Shutdown через `ros2 lifecycle set` |
-| `regular` | Обычная нода | Kill процесса |
-| `unknown` | Тип ещё не определён | Действия недоступны |
+## Структура проекта
 
-## Уведомления об ошибках
-
-Всплывающие уведомления в правом нижнем углу экрана (макс. 5 одновременно, автоскрытие через 7 сек).
-
-| Тип | Описание |
-|-----|----------|
-| `node_inactive` | Нода перешла из ACTIVE в INACTIVE |
-| `missing_topic` | Отсутствует важный топик из списка |
-| `error_pattern` | В /rosout найден паттерн ошибки |
-| `topic_false` | Топик прислал критическое значение |
-
-Пример настройки в `config/servers.yaml`:
-
-```yaml
-alerts:
-  enabled: true
-
-  important_topics:
-    - /perception/lidar/pointcloud
-    - /localization/pose
-
-  error_patterns:
-    - pattern: "FATAL"
-      severity: critical
-    - pattern: "TF_OLD_DATA"
-      severity: warning
-
-  monitored_topics:
-    - topic: /system/emergency
-      field: data
-      alert_on_value: true
+```
+ros2_node_manager/
+├── server/
+│   ├── connection/          # Local Docker и SSH подключения
+│   ├── services/            # NodeService, LogCollector, DiagnosticsCollector,
+│   │                        # TopicHzMonitor, TopicEchoStreamer, AlertService,
+│   │                        # HistoryStore, SpeedMonitor, Metrics
+│   ├── state/               # StatePersister (JSON-состояние нод)
+│   ├── routers/             # REST и WebSocket endpoints
+│   ├── models.py            # Pydantic-модели
+│   ├── config.py            # Загрузка конфигурации
+│   └── main.py              # FastAPI app, lifecycle, middleware
+├── web/src/
+│   ├── components/          # React-компоненты (секции, UI-утилиты)
+│   ├── hooks/               # Custom hooks (данные, WebSocket)
+│   └── services/            # REST и WebSocket клиенты
+├── config/
+│   ├── servers.yaml         # Серверы
+│   ├── topic_groups.yaml    # Группы топиков
+│   └── alerts.yaml          # Правила алертов
+├── deploy/                  # Скрипты деплоя
+├── data/                    # Состояние нод, SQLite история
+└── requirements.txt
 ```
 
 ## Требования
@@ -189,24 +324,7 @@ alerts:
 - Python 3.10+
 - Node.js 18+
 - Docker (на целевой машине)
-- SSH доступ (для удалённых серверов)
-
-## Переменные окружения
-
-```bash
-ROS2_NODE_MANAGER_HOST=0.0.0.0
-ROS2_NODE_MANAGER_PORT=8080
-```
-
-## Известные ограничения
-
-1. **Kill обычных нод** — работает не всегда, зависит от имени процесса
-2. **Запуск нод** — не реализован (требует launch-файлы)
-3. **Изменение параметров** — только просмотр
-
-## Roadmap
-
-Смотрите [ROADMAP.md](ROADMAP.md) для планов развития.
+- SSH (для удалённых серверов)
 
 ## Лицензия
 

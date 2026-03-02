@@ -91,8 +91,9 @@ else
     # Foreground mode
     log_info "Starting ros2-monitor..."
     log_info "Access UI at: http://${HOST_IP}:8080"
+    log_info "Log file:     ${LOG_FILE}"
     log_info "Press Ctrl+C to stop"
     echo ""
 
-    exec uvicorn server.main:app --host 0.0.0.0 --port 8080
+    exec uvicorn server.main:app --host 0.0.0.0 --port 8080 2>&1 | tee -a "$LOG_FILE"
 fi
