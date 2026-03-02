@@ -97,6 +97,7 @@ async def diagnostics_websocket(websocket: WebSocket):
         metrics.ws_disconnect("diagnostic")
         return
 
+    tasks = []
     try:
         await websocket.send_json({
             "type": "connected",
@@ -123,23 +124,42 @@ async def diagnostics_websocket(websocket: WebSocket):
                     ],
                 })
 
-        async def run_diagnostics():
-            async for diag_items in stream_diagnostics(conn):
-                await _send_items(diag_items)
+        async def run_with_retry(name, coro_factory, retry_delay=5):
+            """Run a stream coroutine with automatic retry on failure."""
+            while True:
+                try:
+                    print(f"[diag] Starting stream: {name}")
+                    async for items in coro_factory():
+                        await _send_items(items)
+                    # Stream ended normally (topic stopped publishing)
+                    print(f"[diag] Stream ended: {name}, retrying in {retry_delay}s")
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    print(f"[diag] Stream error in {name}: {e}, retrying in {retry_delay}s")
+                await asyncio.sleep(retry_delay)
 
-        async def run_lidar_sync():
-            async for items in stream_bool_topic(
-                conn,
-                "/sensing/lidar/concatenated/lidar_sync_checker/lidar_sync_flag",
+        tasks = [
+            asyncio.create_task(run_with_retry(
+                "/diagnostics",
+                lambda: stream_diagnostics(conn),
+            )),
+            asyncio.create_task(run_with_retry(
                 "lidar_sync_flag",
-            ):
-                await _send_items(items)
+                lambda: stream_bool_topic(
+                    conn,
+                    "/sensing/lidar/concatenated/lidar_sync_checker/lidar_sync_flag",
+                    "lidar_sync_flag",
+                ),
+            )),
+            asyncio.create_task(run_with_retry(
+                "mrm_status",
+                lambda: stream_mrm_status(conn),
+            )),
+        ]
 
-        async def run_mrm_status():
-            async for items in stream_mrm_status(conn):
-                await _send_items(items)
-
-        await asyncio.gather(run_diagnostics(), run_lidar_sync(), run_mrm_status())
+        # Wait until WebSocket disconnects (tasks cancelled in finally)
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
 
     except WebSocketDisconnect:
         pass
@@ -150,6 +170,10 @@ async def diagnostics_websocket(websocket: WebSocket):
         except:
             pass
     finally:
+        # Cancel all stream tasks
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
         metrics.ws_disconnect("diagnostic")
 
 

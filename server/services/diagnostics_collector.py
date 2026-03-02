@@ -252,6 +252,7 @@ async def stream_mrm_status(
     buffer = []
 
     try:
+        msg_count = 0
         async for line in connection.exec_stream(cmd):
             buffer.append(line)
             if line.strip() == "---":
@@ -259,8 +260,11 @@ async def stream_mrm_status(
                 buffer = []
                 match = re.search(r"status:\s*(\d+)", text)
                 if match:
+                    msg_count += 1
                     status_val = int(match.group(1))
                     level, label = _MRM_STATUS_MAP.get(status_val, (2, "ERROR"))
+                    if msg_count <= 2:
+                        print(f"[diag] MRM status: {label} (val={status_val})")
                     yield [DiagnosticItem(
                         name="mrm_status",
                         level=level,
@@ -268,7 +272,7 @@ async def stream_mrm_status(
                         timestamp=datetime.now(),
                     )]
     except Exception as e:
-        print(f"MRM status stream error: {e}")
+        print(f"[diag] MRM status stream error: {e}")
 
 
 async def stream_bool_topic(

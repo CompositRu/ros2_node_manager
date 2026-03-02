@@ -142,7 +142,9 @@ class LogCollector:
 
         while self._running:
             try:
+                print("[logs] Starting /rosout stream...")
                 buffer = []
+                msg_count = 0
                 async for line in self.conn.exec_stream(cmd):
                     if not self._running:
                         break
@@ -153,16 +155,23 @@ class LogCollector:
                         msg = self._parse_rosout_message("\n".join(buffer))
                         buffer = []
                         if msg:
+                            msg_count += 1
+                            if msg_count <= 3:
+                                print(f"[logs] Message #{msg_count}: [{msg.level}] {msg.node_name}: {msg.message[:80]}")
+                            elif msg_count == 4:
+                                print(f"[logs] Stream working, suppressing further debug output")
                             self._dispatch(msg)
 
+                print(f"[logs] /rosout stream ended after {msg_count} messages, retrying in 5s...")
+
             except ConnectionError as e:
-                print(f"Log collector connection error: {e}")
+                print(f"[logs] Connection error: {e}")
                 if self._running:
                     await asyncio.sleep(5)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Log collector error: {e}")
+                print(f"[logs] Error: {e}")
                 if self._running:
                     await asyncio.sleep(5)
 

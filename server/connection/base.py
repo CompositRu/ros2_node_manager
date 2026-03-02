@@ -77,10 +77,7 @@ class BaseConnection(ABC):
             'ROS_DOMAIN_ID=${_df:-${_dp:-0}} && '
             'export ROS_DOMAIN_ID && '
             'export ROS_LOCALHOST_ONLY=1 && '
-            'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp && '
-            'if [ -z "$CYCLONEDDS_URI" ]; then '
-            'export CYCLONEDDS_URI="<CycloneDDS><Domain><Discovery><MaxAutoParticipantIndex>200</MaxAutoParticipantIndex></Discovery></Domain></CycloneDDS>"; '
-            'fi'
+            'export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp'
         )
 
     def _source_ros(self) -> str:
@@ -96,6 +93,9 @@ class BaseConnection(ABC):
 
         Subsequent commands source this small file instead of the heavy workspace,
         cutting docker exec startup from ~20s to near-instant.
+
+        Also tries to capture CYCLONEDDS_URI from a running ROS2 process,
+        since the entrypoint may set DDS config not present in setup.bash.
         """
         vars_str = " ".join(self._ENV_VARS_TO_CACHE)
         cmd = f"declare -p {vars_str} 2>/dev/null > {self._ENV_CACHE_FILE}"
@@ -103,15 +103,67 @@ class BaseConnection(ABC):
             # First call — uses the slow path (full sourcing) since cache is empty
             await self.exec_command(cmd, timeout=60)
             self._env_cached = True
-            # Log detected ROS_DOMAIN_ID for debugging
+
+            # Patch cache with DDS env vars from a running ROS2 process.
+            # The entrypoint may set CYCLONEDDS_URI that isn't in setup.bash.
+            # Without matching DDS config, ros2 topic echo can't discover publishers.
+            await self._patch_cache_from_running_process()
+
+            # Log detected values for debugging
             try:
-                domain_id = (await self.exec_command("echo $ROS_DOMAIN_ID", timeout=5)).strip()
-                print(f"🔧 Cached ROS env to {self._ENV_CACHE_FILE} (ROS_DOMAIN_ID={domain_id})")
+                info = (await self.exec_command(
+                    "echo ROS_DOMAIN_ID=$ROS_DOMAIN_ID CYCLONEDDS_URI=${CYCLONEDDS_URI:0:80}", timeout=5
+                )).strip()
+                print(f"🔧 Cached ROS env to {self._ENV_CACHE_FILE} ({info})")
             except Exception:
                 print(f"🔧 Cached ROS env to {self._ENV_CACHE_FILE}")
         except Exception as e:
             print(f"⚠ Failed to cache ROS env: {e}")
             self._env_cached = False
+
+    async def _patch_cache_from_running_process(self) -> None:
+        """Read DDS env vars from a running ROS2 process and patch the cache.
+
+        /proc/1/environ only has the initial Docker env, not what the
+        entrypoint script sets via source/export.  So we find a running
+        ROS2 process (e.g. component_container) and read ITS environment
+        to capture CYCLONEDDS_URI and other DDS settings.
+        """
+        patch_vars = ["CYCLONEDDS_URI"]
+
+        try:
+            raw = await self.exec_command(
+                'pid=$(pgrep -f "component_container|ros2_daemon" | head -1) && '
+                '[ -n "$pid" ] && cat /proc/$pid/environ 2>/dev/null | tr "\\0" "\\n"',
+                timeout=5,
+            )
+            if not raw.strip():
+                return
+
+            found_env = {}
+            for line in raw.strip().split("\n"):
+                if "=" in line:
+                    key, _, val = line.partition("=")
+                    if key in patch_vars and val:
+                        found_env[key] = val
+
+            if not found_env:
+                return
+
+            patch_lines = []
+            for key, val in found_env.items():
+                escaped_val = val.replace('"', '\\"')
+                patch_lines.append(f'declare -x {key}="{escaped_val}"')
+
+            patch_cmd = " && ".join(
+                f"echo '{line}' >> {self._ENV_CACHE_FILE}" for line in patch_lines
+            )
+            await self.exec_command(patch_cmd, timeout=5)
+            print(f"🔧 Patched cache from running process: {list(found_env.keys())}")
+
+        except Exception as e:
+            # Not critical — DDS may work without patching
+            pass
 
     def _build_docker_cmd(self, cmd: str) -> str:
         """Build full docker exec command with ROS setup."""
