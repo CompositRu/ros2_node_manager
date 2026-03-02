@@ -32,6 +32,7 @@ class BaseConnection(ABC):
         self.ros_workspace = ros_workspace
         self._connected = False
         self._env_cached = False
+        self._active_docker_pids: set[int] = set()
     
     @property
     def connected(self) -> bool:
@@ -98,7 +99,8 @@ class BaseConnection(ABC):
         since the entrypoint may set DDS config not present in setup.bash.
         """
         vars_str = " ".join(self._ENV_VARS_TO_CACHE)
-        cmd = f"declare -p {vars_str} 2>/dev/null > {self._ENV_CACHE_FILE}"
+        # `; true` ensures exit code 0 even if some vars don't exist
+        cmd = f"declare -p {vars_str} 2>/dev/null > {self._ENV_CACHE_FILE}; true"
         try:
             # First call — uses the slow path (full sourcing) since cache is empty
             await self.exec_command(cmd, timeout=60)
@@ -175,14 +177,46 @@ class BaseConnection(ABC):
         return f"docker exec {self.container} bash -c '{ros_env} && {source_ros} && {escaped_cmd}'"
 
     def _build_docker_cmd_stream(self, cmd: str) -> str:
-        """Build docker exec command for streaming (with unbuffered output)."""
+        """Build docker exec command for streaming with PID tracking.
+
+        Injects ``echo __PID__$$ && exec <cmd>`` so the first output line
+        carries the Docker-side PID.  ``exec`` replaces bash with the
+        actual command, so that PID *is* the ros2 process we need to kill.
+        """
         escaped_cmd = cmd.replace("'", "'\"'\"'")
         if self._env_cached:
-            return f"docker exec {self.container} bash -c 'export PYTHONUNBUFFERED=1 && source {self._ENV_CACHE_FILE} && {escaped_cmd}'"
+            return (f"docker exec {self.container} bash -c "
+                    f"'export PYTHONUNBUFFERED=1 && source {self._ENV_CACHE_FILE} && echo __PID__$$ && exec {escaped_cmd}'")
         ros_env = self._ros_env()
         source_ros = self._source_ros()
-        # PYTHONUNBUFFERED=1 forces unbuffered output for Python-based ROS2 CLI tools
-        return f"docker exec {self.container} bash -c 'export PYTHONUNBUFFERED=1 && {ros_env} && {source_ros} && {escaped_cmd}'"
+        return (f"docker exec {self.container} bash -c "
+                f"'export PYTHONUNBUFFERED=1 && {ros_env} && {source_ros} && echo __PID__$$ && exec {escaped_cmd}'")
+
+    # === Docker-side process cleanup ===
+
+    def _register_docker_pid(self, pid: int) -> None:
+        self._active_docker_pids.add(pid)
+
+    def _unregister_docker_pid(self, pid: int) -> None:
+        self._active_docker_pids.discard(pid)
+
+    async def cleanup_docker_processes(self) -> None:
+        """Kill all tracked processes inside the Docker container."""
+        if not self._active_docker_pids:
+            return
+        pids = list(self._active_docker_pids)
+        self._active_docker_pids.clear()
+        pids_str = " ".join(str(p) for p in pids)
+        print(f"🧹 Cleaning up {len(pids)} Docker-side processes: {pids_str}")
+        try:
+            await self._kill_docker_pids(pids_str)
+        except Exception as e:
+            print(f"⚠ Docker cleanup failed: {e}")
+
+    @abstractmethod
+    async def _kill_docker_pids(self, pids_str: str) -> None:
+        """Kill processes inside Docker container by PID string (e.g. '123 456')."""
+        pass
 
     # === ROS2 CLI wrappers ===
     

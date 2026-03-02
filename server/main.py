@@ -212,21 +212,53 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Shutdown — with hard timeout so a single Ctrl+C is enough
     print("👋 Shutting down...")
     app_state.is_shutting_down = True
+
     if auto_connect_task and not auto_connect_task.done():
         auto_connect_task.cancel()
-    if app_state.log_collector:
-        await app_state.log_collector.stop()
-    if app_state.history_store:
-        await app_state.history_store.close()
-    if app_state.topic_hz_monitor:
-        await app_state.topic_hz_monitor.stop()
-    if app_state.alert_service:
-        await app_state.alert_service.stop()
+
+    # Stop all services in parallel with a timeout
+    try:
+        await asyncio.wait_for(_shutdown_services(), timeout=10.0)
+    except asyncio.TimeoutError:
+        print("⚠ Shutdown timed out after 10s, forcing disconnect...")
+    except Exception as e:
+        print(f"⚠ Error during shutdown: {e}")
+
+    # Always clean up Docker processes and disconnect, even after timeout
     if app_state.connection:
-        await app_state.connection.disconnect()
+        try:
+            await asyncio.wait_for(
+                app_state.connection.cleanup_docker_processes(), timeout=5.0
+            )
+        except Exception:
+            pass
+        try:
+            await asyncio.wait_for(
+                app_state.connection.disconnect(), timeout=5.0
+            )
+        except Exception:
+            pass
+
+    print("👋 Shutdown complete.")
+
+
+async def _shutdown_services() -> None:
+    """Stop all services in parallel."""
+    import asyncio
+    tasks = []
+    if app_state.log_collector:
+        tasks.append(app_state.log_collector.stop())
+    if app_state.topic_hz_monitor:
+        tasks.append(app_state.topic_hz_monitor.stop())
+    if app_state.alert_service:
+        tasks.append(app_state.alert_service.stop())
+    if app_state.history_store:
+        tasks.append(app_state.history_store.close())
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 # Create FastAPI app

@@ -71,7 +71,10 @@ class SSHDockerConnection(BaseConnection):
             raise ConnectionError(f"Failed to connect: {e}")
     
     async def disconnect(self) -> None:
-        """Close SSH connection."""
+        """Close SSH connection and clean up Docker-side processes."""
+        # Kill Docker processes before closing SSH
+        if self._conn and self._connected:
+            await self.cleanup_docker_processes()
         if self._conn:
             self._conn.close()
             await self._conn.wait_closed()
@@ -129,22 +132,71 @@ class SSHDockerConnection(BaseConnection):
             raise ConnectionError(f"SSH host command failed: {e}")
 
     async def exec_stream(self, cmd: str) -> AsyncIterator[str]:
-        """Execute command and stream output via SSH."""
+        """Execute command and stream output via SSH with PID tracking.
+
+        The first output line is a ``__PID__<n>`` marker.  We capture it
+        to track the Docker-side PID for cleanup when the stream ends.
+        """
         if not self._connected or not self._conn:
             raise ConnectionError("Not connected")
 
         full_cmd = self._build_docker_cmd_stream(cmd)
+        docker_pid: int | None = None
         metrics.stream_started()
 
         try:
             async with self._conn.create_process(full_cmd) as proc:
                 async for line in proc.stdout:
                     stripped = line.rstrip('\n\r')
-                    if stripped:
-                        yield stripped
+                    if not stripped:
+                        continue
+                    # Extract Docker-side PID from the first marker line
+                    if docker_pid is None and stripped.startswith("__PID__"):
+                        try:
+                            docker_pid = int(stripped[7:])
+                            self._register_docker_pid(docker_pid)
+                        except ValueError:
+                            yield stripped
+                        continue
+                    yield stripped
+        except asyncio.CancelledError:
+            raise
         except asyncssh.Error as e:
             print(f"SSH exec_stream error: {e}")
         except Exception as e:
             print(f"exec_stream error: {e}")
         finally:
             metrics.stream_finished()
+            # Kill the process INSIDE Docker via SSH
+            if docker_pid is not None:
+                self._unregister_docker_pid(docker_pid)
+                try:
+                    await asyncio.shield(self._kill_docker_pid(docker_pid))
+                except Exception:
+                    pass
+
+    async def _kill_docker_pid(self, pid: int) -> None:
+        """Kill a process inside Docker container via SSH."""
+        if not self._conn:
+            return
+        try:
+            await asyncio.wait_for(
+                self._conn.run(f"docker exec {self.container} kill {pid} 2>/dev/null; true"),
+                timeout=3.0,
+            )
+        except Exception:
+            pass
+
+    async def _kill_docker_pids(self, pids_str: str) -> None:
+        """Kill multiple processes inside Docker container via SSH."""
+        if not self._conn:
+            return
+        try:
+            await asyncio.wait_for(
+                self._conn.run(
+                    f"docker exec {self.container} bash -c 'kill {pids_str} 2>/dev/null; true'"
+                ),
+                timeout=5.0,
+            )
+        except Exception:
+            pass

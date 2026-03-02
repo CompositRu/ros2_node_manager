@@ -56,3 +56,14 @@ if [ "$STOPPED" -eq 1 ]; then
 else
     log_warn "ros2-monitor was not running."
 fi
+
+# Clean up orphan ROS2 CLI processes inside the Docker container
+CONFIG_FILE="${PROJECT_DIR}/config/servers.yaml"
+if [ -f "$CONFIG_FILE" ]; then
+    CONTAINER=$(grep 'container:' "$CONFIG_FILE" | head -1 | awk '{print $2}' | tr -d '"' | tr -d "'")
+    if [ -n "$CONTAINER" ] && docker inspect "$CONTAINER" --format '{{.State.Running}}' 2>/dev/null | grep -q true; then
+        log_info "Cleaning up orphan ROS2 processes inside '${CONTAINER}'..."
+        docker exec "$CONTAINER" bash -c 'pkill -f "ros2 topic echo" 2>/dev/null; pkill -f "ros2 topic hz" 2>/dev/null; true' 2>/dev/null
+        log_info "Docker cleanup done."
+    fi
+fi

@@ -33,7 +33,8 @@ class LocalDockerConnection(BaseConnection):
             raise ConnectionError(f"Failed to connect to local Docker: {e}")
     
     async def disconnect(self) -> None:
-        """Disconnect (no-op for local)."""
+        """Disconnect and clean up Docker-side processes."""
+        await self.cleanup_docker_processes()
         self._connected = False
     
     async def exec_command(self, cmd: str, timeout: float = 30.0) -> str:
@@ -94,11 +95,17 @@ class LocalDockerConnection(BaseConnection):
             raise ConnectionError(f"Host command timed out after {timeout}s")
 
     async def exec_stream(self, cmd: str) -> AsyncIterator[str]:
-        """Execute command and stream output line by line."""
+        """Execute command and stream output line by line.
+
+        The first output line is a ``__PID__<n>`` marker injected by
+        ``_build_docker_cmd_stream``.  We capture it to track the
+        Docker-side PID so we can kill the process on cleanup.
+        """
         if not self._connected:
             raise ConnectionError("Not connected")
 
         full_cmd = self._build_docker_cmd_stream(cmd)
+        docker_pid: int | None = None
 
         proc = await asyncio.create_subprocess_shell(
             full_cmd,
@@ -113,12 +120,31 @@ class LocalDockerConnection(BaseConnection):
                 if not line:
                     break
                 decoded = line.decode().rstrip('\n\r')
-                if decoded:
-                    yield decoded
+                if not decoded:
+                    continue
+                # Extract Docker-side PID from the first marker line
+                if docker_pid is None and decoded.startswith("__PID__"):
+                    try:
+                        docker_pid = int(decoded[7:])
+                        self._register_docker_pid(docker_pid)
+                    except ValueError:
+                        yield decoded
+                    continue
+                yield decoded
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             print(f"exec_stream error: {e}")
         finally:
             metrics.stream_finished()
+            # 1. Kill the process INSIDE Docker (the key fix)
+            if docker_pid is not None:
+                self._unregister_docker_pid(docker_pid)
+                try:
+                    await asyncio.shield(self._kill_docker_pid(docker_pid))
+                except Exception:
+                    pass
+            # 2. Kill the host-side docker exec process
             try:
                 proc.terminate()
                 await asyncio.wait_for(proc.wait(), timeout=2.0)
@@ -129,4 +155,28 @@ class LocalDockerConnection(BaseConnection):
                     proc.kill()
                 except ProcessLookupError:
                     pass
+
+    async def _kill_docker_pid(self, pid: int) -> None:
+        """Kill a process inside the Docker container (no ROS env needed)."""
+        try:
+            kill_proc = await asyncio.create_subprocess_shell(
+                f"docker exec {self.container} kill {pid} 2>/dev/null",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(kill_proc.wait(), timeout=3.0)
+        except Exception:
+            pass
+
+    async def _kill_docker_pids(self, pids_str: str) -> None:
+        """Kill multiple processes inside Docker container."""
+        try:
+            kill_proc = await asyncio.create_subprocess_shell(
+                f"docker exec {self.container} bash -c 'kill {pids_str} 2>/dev/null; true'",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(kill_proc.wait(), timeout=5.0)
+        except Exception:
+            pass
 
