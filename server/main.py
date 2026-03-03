@@ -30,7 +30,7 @@ logging.getLogger("uvicorn.access").addFilter(_QuietAccessFilter())
 
 # from .config import settings, load_servers_config, get_server_by_id
 from .models import ServerConfig, ServerType
-from .connection import BaseConnection, LocalDockerConnection, SSHDockerConnection, ConnectionError, ContainerNotFoundError
+from .connection import BaseConnection, LocalDockerConnection, SSHDockerConnection, AgentConnection, ConnectionError, ContainerNotFoundError
 from .state import StatePersister
 # from .services import NodeServicee
 from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router, history_router, dashboard_router, services_router
@@ -84,7 +84,11 @@ async def connect_to_server(
         await app_state.connection.disconnect()
     
     # Create connection based on server type
-    if server.type == ServerType.LOCAL:
+    if server.type == ServerType.AGENT:
+        if not server.agent_url:
+            raise ConnectionError("Agent server requires 'agent_url' in config")
+        connection = AgentConnection(agent_url=server.agent_url)
+    elif server.type == ServerType.LOCAL:
         connection = LocalDockerConnection(server.container,
                                            ros_workspace=server.ros_workspace)
     else:
@@ -97,7 +101,7 @@ async def connect_to_server(
             password=password_override or server.password,
             ros_workspace=server.ros_workspace,
         )
-    
+
     # Connect and cache ROS env for fast subsequent commands
     await connection.connect()
     await connection.cache_ros_env()
