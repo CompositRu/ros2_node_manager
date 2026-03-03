@@ -32,6 +32,7 @@ class ServerType(str, Enum):
     """Тип подключения к серверу."""
     LOCAL = "local"
     SSH = "ssh"
+    AGENT = "agent"
 
 
 # === Server Models ===
@@ -41,13 +42,14 @@ class ServerConfig(BaseModel):
     id: str
     name: str
     type: ServerType
-    container: str
+    container: str = ""  # Not required for agent type
     host: Optional[str] = None
     port: int = 22
     user: Optional[str] = None
     ssh_key: Optional[str] = None
     password: Optional[str] = None
     ros_workspace: Optional[str] = None  # e.g. "$HOME/tram.autoware"
+    agent_url: Optional[str] = None  # WebSocket URL for agent, e.g. "ws://localhost:9090"
 
 
 class ServerStatus(BaseModel):
