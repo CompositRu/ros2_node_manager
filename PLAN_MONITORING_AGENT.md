@@ -112,13 +112,20 @@
 
 ### 3.1 [x] Launch file для monitoring_agent (commit db3e643c0 in tram.autoware)
 - `monitoring_agent/launch/monitoring_agent.launch.py`
-- Интеграция в autoware launch (опционально)
+- Интеграция в autoware launch: tram_autoware.launch.xml (commit 228cc1a4f in tram.autoware)
+- Запускается в обоих launch: tram_autoware и standalone_localization
+- Аргумент `launch_monitoring_agent` (default=true)
 
-### 3.2 [ ] Docker port exposure
-- Документация по пробросу порта 9090
-- Обновление deploy скриптов если нужно
+### 3.2 [x] Docker port exposure
+- Docker использует `--network host` — проброс не нужен
+- Порт 9090 доступен напрямую на хосте
 
-### 3.3 [ ] End-to-end тестирование
+### 3.3 [x] Бенчмарки и нагрузочное тестирование
+- `monitoring_agent/load_generator.py` — генератор фейковых нод/топиков
+- `benchmarks/bench_agent_vs_docker.py` — сравнение latency/throughput/CPU/memory
+- `docs/benchmarks.md` — документация бенчмарков
+
+### 3.4 [ ] End-to-end тестирование
 - Проверка всех команд через agent
 - Сравнение с docker exec режимом
 - Проверка reconnect при перезапуске agent
