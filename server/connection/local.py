@@ -1,10 +1,13 @@
 """Local Docker connection."""
 
 import asyncio
+import logging
 from typing import AsyncIterator
 
 from .base import BaseConnection, ConnectionError, ContainerNotFoundError
 from ..services.metrics import metrics
+
+logger = logging.getLogger(__name__)
 
 
 class LocalDockerConnection(BaseConnection):
@@ -63,7 +66,7 @@ class LocalDockerConnection(BaseConnection):
                     self._connected = False
                     raise ContainerNotFoundError(f"Container '{self.container}' not found or stopped")
                 if self._env_cached and self._ENV_CACHE_FILE in error_msg:
-                    print(f"⚠ ROS env cache lost, falling back to full sourcing")
+                    logger.warning("ROS env cache lost, falling back to full sourcing")
                     self._env_cached = False
                     result = await self.exec_command(cmd, timeout)
                     asyncio.ensure_future(self.cache_ros_env())
@@ -134,7 +137,7 @@ class LocalDockerConnection(BaseConnection):
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            print(f"exec_stream error: {e}")
+            logger.error(f"exec_stream error: {e}")
         finally:
             metrics.stream_finished()
             # 1. Kill the process INSIDE Docker (the key fix)

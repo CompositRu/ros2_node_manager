@@ -21,6 +21,20 @@
 
 ## Текущая фаза
 
+**E2E Test Fixes — исправление проблем найденных при E2E тестировании**
+
+Результаты: 39/43 passed, 2 failed, 2 skipped. Файл: `results.json`
+
+Проблемы:
+1. `/health` endpoint перехватывается SPA catch-all route — возвращает HTML вместо JSON
+2. `/api/health` использует `._connected` вместо `.connected`
+3. `api.GET /api/nodes` — 3.3s латентность при 200 нодах (надо профилировать)
+4. `rpc.sub.diagnostics` и `ws.WS /ws/alerts` — 10s таймауты (load_generator не генерирует diagnostics/alerts)
+
+
+
+## Будущие работы
+
 **v0.8 — Визуализация графа**
 - Граф связей между нодами (как rqt_graph)
 - Интерактивный граф (zoom, pan, select)

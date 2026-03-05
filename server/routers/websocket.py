@@ -2,8 +2,11 @@
 
 import asyncio
 import json
+import logging
 from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger(__name__)
 
 from ..models import NodeStatus
 from ..services import stream_diagnostics, stream_bool_topic, stream_mrm_status, stream_group_echo
@@ -43,7 +46,7 @@ async def nodes_status_websocket(websocket: WebSocket):
                     # Debug first update
                     if _ws_debug_counter[0] < 3:
                         _ws_debug_counter[0] += 1
-                        print(f"[ws/nodes] Update #{_ws_debug_counter[0]}: "
+                        logger.debug(f"[ws/nodes] Update #{_ws_debug_counter[0]}: "
                               f"active={response.active} inactive={response.inactive} total={response.total}")
 
                     # Send update
@@ -56,7 +59,7 @@ async def nodes_status_websocket(websocket: WebSocket):
                         "timestamp": datetime.now().isoformat()
                     })
                 except ContainerNotFoundError as e:
-                    print(f"Container stopped, auto-disconnecting: {e}")
+                    logger.warning(f"Container stopped, auto-disconnecting: {e}")
                     # Notify client about container stop
                     await websocket.send_json({
                         "type": "container_stopped",
@@ -83,7 +86,7 @@ async def nodes_status_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"WebSocket error: {e}")
+        logger.error(f"WebSocket error: {e}")
     finally:
         metrics.ws_disconnect("status")
 
@@ -136,15 +139,15 @@ async def diagnostics_websocket(websocket: WebSocket):
             """Run a stream coroutine with automatic retry on failure."""
             while True:
                 try:
-                    print(f"[diag] Starting stream: {name}")
+                    logger.debug(f"[diag] Starting stream: {name}")
                     async for items in coro_factory():
                         await _send_items(items)
                     # Stream ended normally (topic stopped publishing)
-                    print(f"[diag] Stream ended: {name}, retrying in {retry_delay}s")
+                    logger.debug(f"[diag] Stream ended: {name}, retrying in {retry_delay}s")
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
-                    print(f"[diag] Stream error in {name}: {e}, retrying in {retry_delay}s")
+                    logger.warning(f"[diag] Stream error in {name}: {e}, retrying in {retry_delay}s")
                 await asyncio.sleep(retry_delay)
 
         tasks = [
@@ -172,7 +175,7 @@ async def diagnostics_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"Diagnostics WebSocket error: {e}")
+        logger.error(f"Diagnostics WebSocket error: {e}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
         except:
@@ -240,7 +243,7 @@ async def all_logs_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"All-logs WebSocket error: {e}")
+        logger.error(f"All-logs WebSocket error: {e}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
         except:
@@ -310,7 +313,7 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"Node logs WebSocket error for {node_name}: {e}")
+        logger.error(f"Node logs WebSocket error for {node_name}: {e}")
         try:
             await websocket.send_json({
                 "type": "error",
@@ -375,13 +378,13 @@ async def alerts_websocket(websocket: WebSocket):
                     "details": alert.details
                 })
             except Exception as e:
-                print(f"Error sending alert: {e}")
+                logger.error(f"Error sending alert: {e}")
                 break
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"Alerts WebSocket error: {e}")
+        logger.error(f"Alerts WebSocket error: {e}")
     finally:
         metrics.ws_disconnect("alert")
 
@@ -430,7 +433,7 @@ async def topic_hz_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"Topic Hz WebSocket error: {e}")
+        logger.error(f"Topic Hz WebSocket error: {e}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
         except:
@@ -472,7 +475,7 @@ async def topic_echo_single_websocket(websocket: WebSocket, topic: str):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"Single Topic Echo WebSocket error: {e}")
+        logger.error(f"Single Topic Echo WebSocket error: {e}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
         except:
@@ -526,7 +529,7 @@ async def topic_hz_single_websocket(websocket: WebSocket, topic: str):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"Single Topic Hz WebSocket error: {e}")
+        logger.error(f"Single Topic Hz WebSocket error: {e}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
         except:
@@ -590,7 +593,7 @@ async def topic_echo_websocket(websocket: WebSocket, group_id: str):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"Topic Echo WebSocket error: {e}")
+        logger.error(f"Topic Echo WebSocket error: {e}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
         except:

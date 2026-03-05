@@ -6,11 +6,14 @@ All WebSocket clients read from the same cache — no duplicate processes.
 """
 
 import asyncio
+import logging
 import re
 from typing import Optional
 
 from ..connection.base import BaseConnection
 from ..models import TopicGroup
+
+logger = logging.getLogger(__name__)
 
 # Matches "average rate: 20.003" from ros2 topic hz output
 _HZ_PATTERN = re.compile(r"average rate:\s*([\d.]+)")
@@ -42,7 +45,7 @@ class TopicHzMonitor:
             return True  # already active
 
         self._active_groups.add(group_id)
-        print(f"📊 TopicHzMonitor: starting hz for group '{group.name}' ({len(group.topics)} topics)")
+        logger.info(f"TopicHzMonitor: starting hz for group '{group.name}' ({len(group.topics)} topics)")
 
         for topic in group.topics:
             if topic not in self._tasks:
@@ -60,7 +63,7 @@ class TopicHzMonitor:
             return True  # already inactive
 
         self._active_groups.discard(group_id)
-        print(f"📊 TopicHzMonitor: stopping hz for group '{group.name}'")
+        logger.info(f"TopicHzMonitor: stopping hz for group '{group.name}'")
 
         # Find topics that are no longer needed by any active group
         still_needed: set[str] = set()
@@ -94,7 +97,7 @@ class TopicHzMonitor:
     async def stop(self) -> None:
         """Stop all monitoring (called on disconnect/shutdown)."""
         self._running = False
-        print("📊 TopicHzMonitor: stopping all...")
+        logger.info("TopicHzMonitor: stopping all...")
 
         for task in self._tasks.values():
             task.cancel()
@@ -105,7 +108,7 @@ class TopicHzMonitor:
         self._tasks.clear()
         self._hz_values.clear()
         self._active_groups.clear()
-        print("📊 TopicHzMonitor: stopped")
+        logger.info("TopicHzMonitor: stopped")
 
     def get_groups_with_hz(self) -> list[dict]:
         """Get groups enriched with current Hz values and active state."""
@@ -148,7 +151,7 @@ class TopicHzMonitor:
                 break
             except Exception as e:
                 if self._running:
-                    print(f"📊 TopicHzMonitor: error monitoring {topic}: {e}")
+                    logger.error(f"TopicHzMonitor: error monitoring {topic}: {e}")
                     self._hz_values[topic] = None
 
             if self._running:

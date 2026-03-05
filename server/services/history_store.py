@@ -2,11 +2,14 @@
 
 import asyncio
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import aiosqlite
+
+logger = logging.getLogger(__name__)
 
 from ..models import LogMessage, Alert
 
@@ -83,7 +86,7 @@ class HistoryStore:
         await self._db.commit()
         self._running = True
         self._flush_task = asyncio.create_task(self._periodic_flush())
-        print(f"📦 History store initialized: {self.db_path} (min_log_level={self.min_log_level})")
+        logger.info(f"History store initialized: {self.db_path} (min_log_level={self.min_log_level})")
 
     async def close(self) -> None:
         """Stop background tasks and close DB."""
@@ -103,7 +106,7 @@ class HistoryStore:
         if self._db:
             await self._db.close()
             self._db = None
-        print("📦 History store closed")
+        logger.info("History store closed")
 
     # ─────────────────────────────────────────────────────────────────
     # Callback from LogCollector (sync, called for every log message)
@@ -128,7 +131,7 @@ class HistoryStore:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"History flush error: {e}")
+                logger.error(f"History flush error: {e}")
 
     async def _flush_log_buffer(self) -> None:
         """Write buffered logs to SQLite."""
@@ -150,7 +153,7 @@ class HistoryStore:
                 self._log_insert_count = 0
                 await self._enforce_log_retention()
         except Exception as e:
-            print(f"History flush DB error: {e}")
+            logger.error(f"History flush DB error: {e}")
 
     # ─────────────────────────────────────────────────────────────────
     # Write: alerts
@@ -186,7 +189,7 @@ class HistoryStore:
                 self._alert_insert_count = 0
                 await self._enforce_alert_retention()
         except Exception as e:
-            print(f"History store alert error: {e}")
+            logger.error(f"History store alert error: {e}")
 
     # ─────────────────────────────────────────────────────────────────
     # Read: logs
@@ -388,9 +391,9 @@ class HistoryStore:
                     (excess,),
                 )
                 await self._db.commit()
-                print(f"📦 Retention: deleted {excess} old logs")
+                logger.info(f"Retention: deleted {excess} old logs")
         except Exception as e:
-            print(f"Retention error (logs): {e}")
+            logger.error(f"Retention error (logs): {e}")
 
     async def _enforce_alert_retention(self) -> None:
         """Delete oldest alerts if over limit."""
@@ -404,9 +407,9 @@ class HistoryStore:
                     (excess,),
                 )
                 await self._db.commit()
-                print(f"📦 Retention: deleted {excess} old alerts")
+                logger.info(f"Retention: deleted {excess} old alerts")
         except Exception as e:
-            print(f"Retention error (alerts): {e}")
+            logger.error(f"Retention error (alerts): {e}")
 
     # ─────────────────────────────────────────────────────────────────
     # Helpers

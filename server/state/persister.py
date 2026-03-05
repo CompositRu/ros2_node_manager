@@ -1,12 +1,15 @@
 """State persistence for nodes."""
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from ..models import NodeInfo, NodeState, NodeType, NodeStatus
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class StatePersister:
@@ -38,7 +41,7 @@ class StatePersister:
                     nodes=nodes
                 )
             except Exception as e:
-                print(f"Error loading state: {e}, creating new")
+                logger.warning(f"Error loading state: {e}, creating new")
                 self._state = self._create_empty_state()
         else:
             self._state = self._create_empty_state()

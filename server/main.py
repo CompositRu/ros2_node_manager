@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+logger = logging.getLogger(__name__)
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -189,7 +191,7 @@ async def disconnect_server() -> None:
         try:
             await app_state.connection.disconnect()
         except Exception as e:
-            print(f"Error during disconnect: {e}")
+            logger.error(f"Error during disconnect: {e}")
         app_state.connection = None
 
     # Clear state
@@ -197,7 +199,7 @@ async def disconnect_server() -> None:
     app_state.current_server_id = None
     app_state.persister = None
 
-    print("🔌 Disconnected from server")
+    logger.info("Disconnected from server")
 
 
 async def _auto_connect_loop():
@@ -216,10 +218,10 @@ async def _auto_connect_loop():
             return  # already connected, done
         try:
             await connect_to_server(first_server)
-            print(f"✅ Auto-connected to '{first_server.name}'")
+            logger.info(f"Auto-connected to '{first_server.name}'")
             return
         except Exception as e:
-            print(f"⚠️  Auto-connect to '{first_server.name}' failed: {e} (retrying in {retry_interval}s)")
+            logger.warning(f"Auto-connect to '{first_server.name}' failed: {e} (retrying in {retry_interval}s)")
             await asyncio.sleep(retry_interval)
 
 
@@ -229,7 +231,7 @@ async def lifespan(app: FastAPI):
     import asyncio
 
     # Startup
-    print("🚀 Tram Monitoring System starting...")
+    logger.info("Tram Monitoring System starting...")
 
     # Ensure data directory exists
     settings.data_dir.mkdir(parents=True, exist_ok=True)
@@ -239,19 +241,19 @@ async def lifespan(app: FastAPI):
     auto_connect_task = None
     if servers:
         first_server = servers[0]
-        print(f"📡 Auto-connecting to '{first_server.name}'...")
+        logger.info(f"Auto-connecting to '{first_server.name}'...")
         try:
             await connect_to_server(first_server)
-            print(f"✅ Connected to '{first_server.name}'")
+            logger.info(f"Connected to '{first_server.name}'")
         except Exception as e:
-            print(f"⚠️  Could not auto-connect: {e}")
-            print("🔄 Will retry in background...")
+            logger.warning(f"Could not auto-connect: {e}")
+            logger.info("Will retry in background...")
             auto_connect_task = asyncio.create_task(_auto_connect_loop())
 
     yield
 
     # Shutdown — with hard timeout so a single Ctrl+C is enough
-    print("👋 Shutting down...")
+    logger.info("Shutting down...")
     app_state.is_shutting_down = True
 
     if auto_connect_task and not auto_connect_task.done():
@@ -261,9 +263,9 @@ async def lifespan(app: FastAPI):
     try:
         await asyncio.wait_for(_shutdown_services(), timeout=10.0)
     except asyncio.TimeoutError:
-        print("⚠ Shutdown timed out after 10s, forcing disconnect...")
+        logger.warning("Shutdown timed out after 10s, forcing disconnect...")
     except Exception as e:
-        print(f"⚠ Error during shutdown: {e}")
+        logger.error(f"Error during shutdown: {e}")
 
     # Always clean up Docker processes and disconnect, even after timeout
     if app_state.connection:
@@ -280,7 +282,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
 
-    print("👋 Shutdown complete.")
+    logger.info("Shutdown complete.")
 
 
 async def _shutdown_services() -> None:
@@ -327,43 +329,15 @@ app.include_router(dashboard_router)
 app.include_router(services_router)
 
 
-# Serve static files (React build)
-static_dir = Path(__file__).parent.parent / "web" / "dist"
-if static_dir.exists():
-    app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
-    
-    @app.get("/")
-    async def serve_index():
-        return FileResponse(static_dir / "index.html")
-    
-    @app.get("/{path:path}")
-    async def serve_spa(path: str):
-        # Serve index.html for client-side routing
-        file_path = static_dir / path
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(file_path)
-        return FileResponse(static_dir / "index.html")
+# === Health check (must be before SPA catch-all) ===
 
-
-# Health check
 @app.get("/health")
 async def health():
     return {
         "status": "ok",
         "connected": app_state.connection is not None and app_state.connection.connected,
-        "server": app_state.current_server_id
+        "server": app_state.current_server_id,
     }
-
-
-# === Static files and SPA routing (Production) ===
-
-from pathlib import Path
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
-
-# Path to React build
-STATIC_DIR = Path(__file__).parent.parent / "web" / "dist"
-ASSETS_DIR = STATIC_DIR / "assets"
 
 
 @app.get("/api/health")
@@ -371,10 +345,17 @@ async def health_check():
     """Health check endpoint."""
     return {
         "status": "ok",
-        "connected": app_state.connection is not None and app_state.connection._connected,
+        "connected": app_state.connection is not None and app_state.connection.connected,
         "server": app_state.current_server_id,
     }
 
+
+# === Static files and SPA routing (Production) ===
+
+from fastapi.responses import JSONResponse
+
+STATIC_DIR = Path(__file__).parent.parent / "web" / "dist"
+ASSETS_DIR = STATIC_DIR / "assets"
 
 # Serve static assets if build exists
 if ASSETS_DIR.exists():
@@ -387,7 +368,7 @@ async def serve_spa(request: Request, full_path: str):
     # Don't serve SPA for API routes
     if full_path.startswith("api/") or full_path.startswith("ws/"):
         raise HTTPException(status_code=404, detail="Not found")
-    
+
     # Check if static build exists
     index_file = STATIC_DIR / "index.html"
     if not index_file.exists():
@@ -395,12 +376,12 @@ async def serve_spa(request: Request, full_path: str):
             status_code=200,
             content={"message": "Tram Monitoring System API", "docs": "/docs", "mode": "development"}
         )
-    
+
     # Try to serve the exact file first
     file_path = STATIC_DIR / full_path
     if file_path.is_file():
         return FileResponse(file_path)
-    
+
     # Otherwise serve index.html (SPA routing)
     return FileResponse(index_file)
 

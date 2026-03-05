@@ -2,12 +2,15 @@
 
 import asyncio
 import json
+import logging
 import math
 import re
 import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
+
+logger = logging.getLogger(__name__)
 
 from ..services.speed_monitor import SpeedMonitor
 
@@ -148,7 +151,7 @@ async def _get_docker_info(conn) -> dict | None:
             uptime = (datetime.now(timezone.utc) - started_dt).total_seconds()
             return {"started_at": started_at, "uptime_seconds": int(uptime)}
     except Exception as e:
-        print(f"Dashboard: docker inspect error: {e}")
+        logger.warning(f"Dashboard: docker inspect error: {e}")
     return None
 
 
@@ -173,7 +176,7 @@ async def _get_docker_stats(conn) -> dict | None:
                 "memory_percent": round(mem_percent, 1),
             }
     except Exception as e:
-        print(f"Dashboard: docker stats error: {e}")
+        logger.warning(f"Dashboard: docker stats error: {e}")
     return None
 
 
@@ -238,7 +241,7 @@ async def _get_node_counts(app_state) -> dict:
                 "total": response.total,
             }
     except Exception as e:
-        print(f"Dashboard: node counts error: {e}")
+        logger.warning(f"Dashboard: node counts error: {e}")
     return {"active": 0, "inactive": 0, "total": 0}
 
 

@@ -1,9 +1,12 @@
 """Node service for managing ROS2 nodes."""
 
 import asyncio
+import logging
 import time
 from datetime import datetime
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from ..connection import BaseConnection, ConnectionError
 from ..state import StatePersister
@@ -107,7 +110,7 @@ class NodeService:
                 if is_lifecycle:
                     self._schedule_lifecycle_state_check(node_name)
             except Exception as e:
-                print(f"Error checking type for {node_name}: {e}")
+                logger.error(f"Error checking type for {node_name}: {e}")
 
         if new_nodes:
             sem = asyncio.Semaphore(20)
@@ -138,7 +141,7 @@ class NodeService:
                     self.persister.update_node(node)
                     self.persister.save()
         except Exception as e:
-            print(f"Error getting lifecycle state for {node_name}: {e}")
+            logger.error(f"Error getting lifecycle state for {node_name}: {e}")
     
     async def get_node_detail(self, node_name: str, refresh: bool = True) -> Optional[NodeDetailResponse]:
         """Get detailed information about a node."""
@@ -168,7 +171,7 @@ class NodeService:
                     node.publishers = info.get("publishers", [])
                     node.services = info.get("services", [])
                 else:
-                    print(f"Error fetching node info for {node_name}: {info}")
+                    logger.error(f"Error fetching node info for {node_name}: {info}")
 
                 # Process lifecycle state
                 if node.type == NodeType.LIFECYCLE and len(results) > 1:
@@ -184,7 +187,7 @@ class NodeService:
                 self.persister.save()
 
             except Exception as e:
-                print(f"Error fetching node detail: {e}")
+                logger.error(f"Error fetching node detail: {e}")
         
         return NodeDetailResponse(node=node)
     
@@ -205,7 +208,7 @@ class NodeService:
                 self.persister.save()
             return params or {}
         except Exception as e:
-            print(f"Error fetching params for {node_name}: {e}")
+            logger.error(f"Error fetching params for {node_name}: {e}")
             return node.parameters or {}
 
     async def shutdown_node(self, node_name: str, force: bool = False) -> tuple[bool, str]:

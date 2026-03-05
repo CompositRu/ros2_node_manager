@@ -1,12 +1,15 @@
 """SSH Docker connection."""
 
 import asyncio
+import logging
 from typing import AsyncIterator, Optional
 
 import asyncssh
 
 from .base import BaseConnection, ConnectionError, ContainerNotFoundError
 from ..services.metrics import metrics
+
+logger = logging.getLogger(__name__)
 
 
 class SSHDockerConnection(BaseConnection):
@@ -101,7 +104,7 @@ class SSHDockerConnection(BaseConnection):
                     self._connected = False
                     raise ContainerNotFoundError(f"Container '{self.container}' not found or stopped")
                 if self._env_cached and self._ENV_CACHE_FILE in error_msg:
-                    print(f"⚠ ROS env cache lost, falling back to full sourcing")
+                    logger.warning("ROS env cache lost, falling back to full sourcing")
                     self._env_cached = False
                     result_str = await self.exec_command(cmd, timeout)
                     asyncio.ensure_future(self.cache_ros_env())
@@ -162,9 +165,9 @@ class SSHDockerConnection(BaseConnection):
         except asyncio.CancelledError:
             raise
         except asyncssh.Error as e:
-            print(f"SSH exec_stream error: {e}")
+            logger.error(f"SSH exec_stream error: {e}")
         except Exception as e:
-            print(f"exec_stream error: {e}")
+            logger.error(f"exec_stream error: {e}")
         finally:
             metrics.stream_finished()
             # Kill the process INSIDE Docker via SSH

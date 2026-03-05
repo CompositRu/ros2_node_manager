@@ -1,6 +1,7 @@
 """Log collector service — single /rosout stream for all consumers."""
 
 import asyncio
+import logging
 import re
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
@@ -8,6 +9,8 @@ from typing import Optional, Callable
 
 from ..connection import BaseConnection, ConnectionError
 from ..models import LogMessage
+
+logger = logging.getLogger(__name__)
 
 
 class LogCollector:
@@ -50,7 +53,7 @@ class LogCollector:
             return
         self._running = True
         self._task = asyncio.create_task(self._collect_loop())
-        print("📋 Log collector started (single /rosout stream)")
+        logger.info("Log collector started (single /rosout stream)")
 
     async def stop(self) -> None:
         """Stop the background stream."""
@@ -65,7 +68,7 @@ class LogCollector:
         self._callbacks.clear()
         self._all_subscribers.clear()
         self._subscribers.clear()
-        print("📋 Log collector stopped")
+        logger.info("Log collector stopped")
 
     # ─────────────────────────────────────────────────────────────────
     # Queue-based subscriptions (for WebSocket endpoints)
@@ -142,7 +145,7 @@ class LogCollector:
 
         while self._running:
             try:
-                print("[logs] Starting /rosout stream...")
+                logger.info("Starting /rosout stream...")
                 buffer = []
                 msg_count = 0
                 async for line in self.conn.exec_stream(cmd):
@@ -157,21 +160,21 @@ class LogCollector:
                         if msg:
                             msg_count += 1
                             if msg_count <= 3:
-                                print(f"[logs] Message #{msg_count}: [{msg.level}] {msg.node_name}: {msg.message[:80]}")
+                                logger.debug(f"[logs] Message #{msg_count}: [{msg.level}] {msg.node_name}: {msg.message[:80]}")
                             elif msg_count == 4:
-                                print(f"[logs] Stream working, suppressing further debug output")
+                                logger.debug("[logs] Stream working, suppressing further debug output")
                             self._dispatch(msg)
 
-                print(f"[logs] /rosout stream ended after {msg_count} messages, retrying in 5s...")
+                logger.info(f"/rosout stream ended after {msg_count} messages, retrying in 5s...")
 
             except ConnectionError as e:
-                print(f"[logs] Connection error: {e}")
+                logger.warning(f"Connection error: {e}")
                 if self._running:
                     await asyncio.sleep(5)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"[logs] Error: {e}")
+                logger.error(f"Error: {e}")
                 if self._running:
                     await asyncio.sleep(5)
 
@@ -189,7 +192,7 @@ class LogCollector:
             try:
                 cb(msg)
             except Exception as e:
-                print(f"Log callback error: {e}")
+                logger.error(f"Log callback error: {e}")
 
         # 2. All-subscribers (WebSocket /ws/logs/all)
         for queue in self._all_subscribers:

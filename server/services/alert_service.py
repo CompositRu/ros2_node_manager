@@ -1,10 +1,13 @@
 """Alert monitoring service for Tram Monitoring System."""
 
 import asyncio
+import logging
 import re
 from datetime import datetime, timedelta
 from typing import AsyncIterator, Optional, Callable, Set, Dict
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from ..connection import BaseConnection
 from ..models import Alert, AlertType, AlertSeverity, AlertConfig, NodeStatus, LogMessage
@@ -54,7 +57,7 @@ class AlertService:
                         p.get("severity", "error")
                     ))
                 except re.error as e:
-                    print(f"Invalid regex pattern '{p['pattern']}': {e}")
+                    logger.warning(f"Invalid regex pattern '{p['pattern']}': {e}")
 
         # Running state
         self._running = False
@@ -63,11 +66,11 @@ class AlertService:
     async def start(self) -> None:
         """Start all monitoring tasks."""
         if not self.config.enabled:
-            print("⚠️ Alert service disabled in config")
+            logger.warning("Alert service disabled in config")
             return
 
         self._running = True
-        print("🔔 Alert service starting...")
+        logger.info("Alert service starting...")
 
         # Start monitoring tasks
         # Note: rosout pattern matching is now handled by on_log_message() callback
@@ -78,12 +81,12 @@ class AlertService:
             asyncio.create_task(self._monitor_topic_values()),
         ]
         
-        print("🔔 Alert service started")
+        logger.info("Alert service started")
 
     async def stop(self) -> None:
         """Stop all monitoring tasks."""
         self._running = False
-        print("🔔 Alert service stopping...")
+        logger.info("Alert service stopping...")
         
         for task in self._tasks:
             task.cancel()
@@ -94,7 +97,7 @@ class AlertService:
         
         self._tasks = []
         self._subscribers.clear()
-        print("🔔 Alert service stopped")
+        logger.info("Alert service stopped")
 
     # ─────────────────────────────────────────────────────────────────
     # Public API
@@ -229,7 +232,7 @@ class AlertService:
             try:
                 asyncio.ensure_future(self.history_store.store_alert(alert))
             except Exception as e:
-                print(f"Failed to persist alert: {e}")
+                logger.error(f"Failed to persist alert: {e}")
 
         # Add to queue (for WebSocket async iterator)
         try:
@@ -247,9 +250,9 @@ class AlertService:
             try:
                 callback(alert)
             except Exception as e:
-                print(f"Error in alert subscriber: {e}")
+                logger.error(f"Error in alert subscriber: {e}")
 
-        print(f"🔔 Alert: [{severity.value}] {title}: {message}")
+        logger.info(f"Alert: [{severity.value}] {title}: {message}")
         return True
 
     # ─────────────────────────────────────────────────────────────────
@@ -294,7 +297,7 @@ class AlertService:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Error in node monitoring: {e}")
+                logger.error(f"Error in node monitoring: {e}")
                 await asyncio.sleep(5)
 
     async def _monitor_missing_topics(self) -> None:
@@ -345,7 +348,7 @@ class AlertService:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Error monitoring topics: {e}")
+                logger.error(f"Error monitoring topics: {e}")
                 interval = min(interval * 2, 120)  # backoff: 10→20→40→80→120s max
                 await asyncio.sleep(interval)
 

@@ -11,7 +11,7 @@ model: opus
 
 ### 1. Сбор фактов
 - Прочитай описание бага от пользователя
-- Найди релевантные логи (logs/, /tmp/monitoring_agent.log, data/history_*.db)
+- Найди релевантные логи (logs/, ~/autoware_map/monitoring_agent.log, data/history_*.db)
 - Посмотри git log на недавние изменения (`git log --oneline -20`)
 - Определи когда баг появился (если возможно)
 

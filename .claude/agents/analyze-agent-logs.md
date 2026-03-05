@@ -1,6 +1,6 @@
 ---
 name: analyze-agent-logs
-description: "Анализ логов monitoring_agent (ROS2 нода). Читает /tmp/monitoring_agent.log, выявляет проблемы WebSocket, ROS2 API, подписок. Используй проактивно при отладке agent-соединения."
+description: "Анализ логов monitoring_agent (ROS2 нода). Читает ~/autoware_map/monitoring_agent.log, выявляет проблемы WebSocket, ROS2 API, подписок. Используй проактивно при отладке agent-соединения."
 tools: Read, Grep, Glob, Bash
 model: haiku
 ---
@@ -10,13 +10,13 @@ model: haiku
 
 ## Источник логов
 
-**Основной файл:** `/tmp/monitoring_agent.log`
+**Основной файл:** `~/autoware_map/monitoring_agent.log`
 - Формат: `%(asctime)s [%(name)s] %(levelname)s: %(message)s`
 - Ротация: 10MB, до 5 бэкапов
 - Путь настраивается через env `MONITORING_AGENT_LOG_FILE`
 
 Также проверь бэкапы для длинной истории:
-- `/tmp/monitoring_agent.log.1` ... `/tmp/monitoring_agent.log.5`
+- `~/autoware_map/monitoring_agent.log.1` ... `~/autoware_map/monitoring_agent.log.5`
 
 Если файл не найден — сообщи что агент не запущен или лог в другом месте.
 

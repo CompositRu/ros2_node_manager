@@ -1,6 +1,7 @@
 """Diagnostics collector for streaming ROS2 /diagnostics topic."""
 
 import asyncio
+import logging
 import re
 import yaml
 from datetime import datetime
@@ -8,6 +9,8 @@ from typing import AsyncIterator
 
 from ..connection import BaseConnection, ConnectionError
 from ..models import DiagnosticItem
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_byte_levels(text: str) -> str:
@@ -90,18 +93,16 @@ async def stream_diagnostics(
 
                 if msg_count <= 2:
                     # Log first messages for debugging level format
-                    print(f"DEBUG diagnostics msg #{msg_count} (first 500 chars): {text[:500]}")
+                    logger.debug(f"Diagnostics msg #{msg_count} (first 500 chars): {text[:500]}")
 
                 items = _parse_diagnostic_array(text)
                 if items and msg_count <= 2:
-                    print(f"DEBUG parsed {len(items)} items, first level={items[0].level} name={items[0].name}")
+                    logger.debug(f"Parsed {len(items)} items, first level={items[0].level} name={items[0].name}")
                 if items:
                     yield items
 
     except Exception as e:
-        import traceback
-        print(f"Diagnostics stream error: {e}")
-        traceback.print_exc()
+        logger.error(f"Diagnostics stream error: {e}", exc_info=True)
 
 
 def _parse_diagnostic_array(text: str) -> list[DiagnosticItem]:
@@ -267,7 +268,7 @@ async def stream_mrm_status(
                     status_val = int(match.group(1))
                     level, label = _MRM_STATUS_MAP.get(status_val, (2, "ERROR"))
                     if msg_count <= 2:
-                        print(f"[diag] MRM status: {label} (val={status_val})")
+                        logger.debug(f"MRM status: {label} (val={status_val})")
                     yield [DiagnosticItem(
                         name="mrm_status",
                         level=level,
@@ -275,7 +276,7 @@ async def stream_mrm_status(
                         timestamp=datetime.now(),
                     )]
     except Exception as e:
-        print(f"[diag] MRM status stream error: {e}")
+        logger.error(f"MRM status stream error: {e}")
 
 
 async def stream_bool_topic(
@@ -303,4 +304,4 @@ async def stream_bool_topic(
                         timestamp=datetime.now(),
                     )]
     except Exception as e:
-        print(f"Bool topic stream error ({topic}): {e}")
+        logger.error(f"Bool topic stream error ({topic}): {e}")

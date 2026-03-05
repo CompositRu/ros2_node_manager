@@ -1,7 +1,10 @@
 """Base connection class for Docker command execution."""
 
+import logging
 from abc import ABC, abstractmethod
 from typing import Optional, AsyncIterator
+
+logger = logging.getLogger(__name__)
 
 
 class ConnectionError(Exception):
@@ -116,11 +119,11 @@ class BaseConnection(ABC):
                 info = (await self.exec_command(
                     "echo ROS_DOMAIN_ID=$ROS_DOMAIN_ID CYCLONEDDS_URI=${CYCLONEDDS_URI:0:80}", timeout=5
                 )).strip()
-                print(f"🔧 Cached ROS env to {self._ENV_CACHE_FILE} ({info})")
+                logger.info(f"Cached ROS env to {self._ENV_CACHE_FILE} ({info})")
             except Exception:
-                print(f"🔧 Cached ROS env to {self._ENV_CACHE_FILE}")
+                logger.info(f"Cached ROS env to {self._ENV_CACHE_FILE}")
         except Exception as e:
-            print(f"⚠ Failed to cache ROS env: {e}")
+            logger.warning(f"Failed to cache ROS env: {e}")
             self._env_cached = False
 
     async def _patch_cache_from_running_process(self) -> None:
@@ -161,7 +164,7 @@ class BaseConnection(ABC):
                 f"echo '{line}' >> {self._ENV_CACHE_FILE}" for line in patch_lines
             )
             await self.exec_command(patch_cmd, timeout=5)
-            print(f"🔧 Patched cache from running process: {list(found_env.keys())}")
+            logger.info(f"Patched cache from running process: {list(found_env.keys())}")
 
         except Exception as e:
             # Not critical — DDS may work without patching
@@ -207,11 +210,11 @@ class BaseConnection(ABC):
         pids = list(self._active_docker_pids)
         self._active_docker_pids.clear()
         pids_str = " ".join(str(p) for p in pids)
-        print(f"🧹 Cleaning up {len(pids)} Docker-side processes: {pids_str}")
+        logger.info(f"Cleaning up {len(pids)} Docker-side processes: {pids_str}")
         try:
             await self._kill_docker_pids(pids_str)
         except Exception as e:
-            print(f"⚠ Docker cleanup failed: {e}")
+            logger.warning(f"Docker cleanup failed: {e}")
 
     @abstractmethod
     async def _kill_docker_pids(self, pids_str: str) -> None:
@@ -267,7 +270,7 @@ class BaseConnection(ABC):
             
         except Exception as e:
             import traceback
-            print(f"Error getting params for {node_name}: {e}")
+            logger.error(f"Error getting params for {node_name}: {e}")
             traceback.print_exc()
             return {}
     
@@ -386,7 +389,7 @@ class BaseConnection(ABC):
             self._services_cache = set(line.strip() for line in lines if line.strip().startswith('/'))
             # print(f"DEBUG: Cached {len(self._services_cache)} services")
         except Exception as e:
-            print(f"Error refreshing services cache: {e}")
+            logger.error(f"Error refreshing services cache: {e}")
             self._services_cache = set()
 
     def invalidate_services_cache(self) -> None:
@@ -409,7 +412,7 @@ class BaseConnection(ABC):
                     return state
             return None
         except Exception as e:
-            print(f"Error getting lifecycle state for {node_name}: {e}")
+            logger.error(f"Error getting lifecycle state for {node_name}: {e}")
             return None
     
     async def ros2_lifecycle_set(self, node_name: str, transition: str) -> tuple[bool, str]:

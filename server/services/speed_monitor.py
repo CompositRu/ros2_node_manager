@@ -1,10 +1,13 @@
 """Speed monitor — background stream from /localization/kinematic_state."""
 
 import asyncio
+import logging
 import math
 from typing import Optional
 
 from ..connection import BaseConnection
+
+logger = logging.getLogger(__name__)
 
 
 class SpeedMonitor:
@@ -65,7 +68,7 @@ class SpeedMonitor:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"SpeedMonitor: stream error: {e}")
+                logger.error(f"SpeedMonitor: stream error: {e}")
                 self.speed_kmh = None
                 if self._running:
                     await asyncio.sleep(5)

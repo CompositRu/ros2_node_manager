@@ -1,0 +1,575 @@
+{
+  "timestamp": "2026-03-05T11:52:21.717643+00:00",
+  "agent_url": "ws://localhost:9090",
+  "api_url": "http://localhost:8080",
+  "levels": "rpc,api,ws,infra",
+  "timeout_mult": 1.0,
+  "summary": {
+    "total": 43,
+    "passed": 40,
+    "failed": 0,
+    "no_data": 1,
+    "skipped": 2
+  },
+  "results": [
+    {
+      "name": "rpc.graph.nodes",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 10.780530999909388,
+      "error": null,
+      "details": {
+        "count": 201
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.graph.node_info",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 0.376133999452577,
+      "error": null,
+      "details": {
+        "node": "/control/lateral/fake_node_0030",
+        "pubs": 6,
+        "subs": 0,
+        "srvs": 11
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.graph.topics",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 1.1543549990165047,
+      "error": null,
+      "details": {
+        "count": 123
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.graph.topic_info",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 1.3007509987801313,
+      "error": null,
+      "details": {
+        "topic": "/control/lateral/data_0",
+        "type": "std_msgs/msg/Bool"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.graph.services",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 3.48610400033067,
+      "error": null,
+      "details": {
+        "count": 1512
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.graph.services_typed",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 4.383470000902889,
+      "error": null,
+      "details": {
+        "count": 1512
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.graph.interface_show",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 103.1921579997288,
+      "error": null,
+      "details": {
+        "type": "lifecycle_msgs/srv/ChangeState",
+        "len": 217
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.params.dump",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 106.49548999936087,
+      "error": null,
+      "details": {
+        "node": "/control/lateral/fake_node_0030",
+        "params": 1
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.lifecycle.is_lifecycle",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 0.3624619985203026,
+      "error": null,
+      "details": {
+        "node": "/control/lateral/fake_node_0030",
+        "is_lifecycle": true
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.lifecycle.get_state",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 55.164703000627924,
+      "error": null,
+      "details": {
+        "node": "/control/lateral/fake_node_0030",
+        "state": "unconfigured"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.sub.topic.echo",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 1505.7461409996904,
+      "error": null,
+      "details": {
+        "topic": "/rosout",
+        "msgs": 1
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.sub.topic.hz",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 2013.023860999965,
+      "error": null,
+      "details": {
+        "topic": "/control/lateral/data_0",
+        "hz": 29.9
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.sub.logs",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 3002.999362999617,
+      "error": null,
+      "details": {
+        "msgs": 1
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "rpc.sub.diagnostics",
+      "level": "rpc",
+      "passed": false,
+      "latency_ms": 10008.240952000051,
+      "error": null,
+      "details": {
+        "note": "no diagnostics received"
+      },
+      "skipped": false,
+      "no_data": true
+    },
+    {
+      "name": "rpc.lifecycle.set_state",
+      "level": "rpc",
+      "passed": false,
+      "latency_ms": 0.0,
+      "error": "skipped: destructive (use --destructive)",
+      "details": {},
+      "skipped": true,
+      "no_data": false
+    },
+    {
+      "name": "rpc.service.call",
+      "level": "rpc",
+      "passed": true,
+      "latency_ms": 53.242964000673965,
+      "error": null,
+      "details": {
+        "service": "/control/lateral/fake_node_0030/list_parameters"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/nodes",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 2863.989113999196,
+      "error": null,
+      "details": {
+        "total": 916,
+        "active": 201
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/nodes/{name}",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 503.1809809988772,
+      "error": null,
+      "details": {
+        "node": "/control/lateral/fake_node_0030"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/nodes/{name}/params",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 114.72185000093305,
+      "error": null,
+      "details": {
+        "node": "/control/lateral/fake_node_0030",
+        "params": 1
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/topics/list",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 3.677857999718981,
+      "error": null,
+      "details": {
+        "count": 123
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/topics/info/{topic}",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 3.0250130002968945,
+      "error": null,
+      "details": {
+        "topic": "/control/lateral/data_0",
+        "type": "std_msgs/msg/Bool"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/topics/groups",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 1.4087980016483925,
+      "error": null,
+      "details": {
+        "groups": 5
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/services/list",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 7.680699000047753,
+      "error": null,
+      "details": {
+        "count": 0
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/services/interface/{type}",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 4.890484999123146,
+      "error": null,
+      "details": {
+        "type": "lifecycle_msgs/srv/ChangeState",
+        "has_raw": true
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.POST /api/services/call",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 96.28179200080922,
+      "error": null,
+      "details": {
+        "service": "/control/lateral/fake_node_0030/list_parameters",
+        "success": true
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/history/logs",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 3.6558449992298847,
+      "error": null,
+      "details": {
+        "type": "dict"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/history/alerts",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 2.731855998717947,
+      "error": null,
+      "details": {
+        "type": "dict"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/history/logs/export",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 13.698024000404985,
+      "error": null,
+      "details": {
+        "content_type": "application/json"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.GET /api/history/stats",
+      "level": "api",
+      "passed": true,
+      "latency_ms": 2.294566000273335,
+      "error": null,
+      "details": {
+        "logs_count": 3562,
+        "alerts_count": 1052,
+        "logs_oldest": "2026-03-04T16:05:49.433097",
+        "logs_newest": "2026-03-05T14:52:07.087404",
+        "alerts_oldest": "2026-03-04T16:08:29.240326",
+        "alerts_newest": "2026-03-05T14:52:07.599884"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "api.POST /api/nodes/{name}/lifecycle",
+      "level": "api",
+      "passed": false,
+      "latency_ms": 0.0,
+      "error": "skipped: destructive (use --destructive)",
+      "details": {},
+      "skipped": true,
+      "no_data": false
+    },
+    {
+      "name": "ws.WS /ws/nodes/status",
+      "level": "ws",
+      "passed": true,
+      "latency_ms": 24.043879999226192,
+      "error": null,
+      "details": {
+        "type": "nodes_update",
+        "nodes": 916
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "ws.WS /ws/logs/all",
+      "level": "ws",
+      "passed": true,
+      "latency_ms": 10.09734000035678,
+      "error": null,
+      "details": {
+        "msgs": 2,
+        "has_history": false
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "ws.WS /ws/logs/{node}",
+      "level": "ws",
+      "passed": true,
+      "latency_ms": 6.6977530004805885,
+      "error": null,
+      "details": {
+        "node": "/control/lateral/fake_node_0030",
+        "msgs": 1
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "ws.WS /ws/topics/hz",
+      "level": "ws",
+      "passed": true,
+      "latency_ms": 7.660524999664631,
+      "error": null,
+      "details": {
+        "type": "connected"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "ws.WS /ws/topics/echo-single/{topic}",
+      "level": "ws",
+      "passed": true,
+      "latency_ms": 6.403874000170617,
+      "error": null,
+      "details": {
+        "topic": "/control/lateral/data_0",
+        "msgs": 1
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "ws.WS /ws/topics/hz-single/{topic}",
+      "level": "ws",
+      "passed": true,
+      "latency_ms": 5.725474999053404,
+      "error": null,
+      "details": {
+        "topic": "/control/lateral/data_0",
+        "msgs": 1
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "ws.WS /ws/diagnostics",
+      "level": "ws",
+      "passed": true,
+      "latency_ms": 6.229463000636315,
+      "error": null,
+      "details": {
+        "msgs": 1
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "ws.WS /ws/alerts",
+      "level": "ws",
+      "passed": true,
+      "latency_ms": 10006.127179000032,
+      "error": null,
+      "details": {
+        "type": "connected"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "infra.GET /health",
+      "level": "infra",
+      "passed": true,
+      "latency_ms": 4.400376999910804,
+      "error": null,
+      "details": {
+        "connected": true,
+        "server": "local-agent"
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "infra.GET /api/debug/stats",
+      "level": "infra",
+      "passed": true,
+      "latency_ms": 6.920981999428477,
+      "error": null,
+      "details": {
+        "uptime_seconds": 38.1,
+        "subprocesses": {
+          "active_exec": 0,
+          "active_streams": 4,
+          "total_commands": 4
+        },
+        "websockets": {
+          "status": 0,
+          "log": 1,
+          "log_all": 0,
+          "alert": 0,
+          "diagnostic": 1,
+          "topic_hz": 0,
+          "topic_echo": 0,
+          "total": 2
+        }
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "infra.GET /api/dashboard",
+      "level": "infra",
+      "passed": true,
+      "latency_ms": 23.1576780006435,
+      "error": null,
+      "details": {
+        "keys": [
+          "docker",
+          "resources",
+          "nodes",
+          "topics_count",
+          "services_count"
+        ]
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "infra.GET /api/servers",
+      "level": "infra",
+      "passed": true,
+      "latency_ms": 2.7991290007776115,
+      "error": null,
+      "details": {
+        "servers": 3
+      },
+      "skipped": false,
+      "no_data": false
+    },
+    {
+      "name": "infra.connect-disconnect",
+      "level": "infra",
+      "passed": true,
+      "latency_ms": 1082.3503249994246,
+      "error": null,
+      "details": {
+        "server_id": "local-agent"
+      },
+      "skipped": false,
+      "no_data": false
+    }
+  ]
+}
