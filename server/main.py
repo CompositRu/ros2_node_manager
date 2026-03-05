@@ -12,6 +12,22 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 
+# --- File logging setup (overwritten on each restart) ---
+_LOG_DIR = Path(__file__).parent.parent / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+_LOG_FILE = _LOG_DIR / "app.log"
+
+_file_handler = logging.FileHandler(_LOG_FILE, mode="w", encoding="utf-8")
+_file_handler.setLevel(logging.DEBUG)
+_file_handler.setFormatter(logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+))
+
+logging.root.addHandler(_file_handler)
+logging.root.setLevel(logging.INFO)
+
+
 # Suppress noisy uvicorn access logs for polling endpoints
 class _QuietAccessFilter(logging.Filter):
     """Downgrade frequent polling endpoints from INFO to DEBUG."""
