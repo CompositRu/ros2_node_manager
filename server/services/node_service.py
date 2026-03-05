@@ -98,18 +98,23 @@ class NodeService:
             if node_name not in running_set and node.status == NodeStatus.ACTIVE:
                 self.persister.set_node_status(node_name, NodeStatus.INACTIVE)
 
-        # Check types for new nodes (fast now, using cached services)
-        for node_name in new_nodes:
+        # Check types for new nodes concurrently (max 20 parallel)
+        async def _check_type(node_name: str):
             try:
                 is_lifecycle = await self.conn.is_lifecycle_node(node_name)
                 node_type = NodeType.LIFECYCLE if is_lifecycle else NodeType.REGULAR
                 self.persister.set_node_type(node_name, node_type)
-
                 if is_lifecycle:
-                    # Get lifecycle state - this is still slow, do it in background
                     self._schedule_lifecycle_state_check(node_name)
             except Exception as e:
                 print(f"Error checking type for {node_name}: {e}")
+
+        if new_nodes:
+            sem = asyncio.Semaphore(20)
+            async def _bounded(n):
+                async with sem:
+                    await _check_type(n)
+            await asyncio.gather(*[_bounded(n) for n in new_nodes], return_exceptions=True)
 
         # Save state
         self.persister.save()

@@ -1,0 +1,102 @@
+{
+  "timestamp": "2026-03-04 15:00:07",
+  "system": {
+    "timestamp": 1772625607.1125216,
+    "cpu_percent": 0.0,
+    "rss_mb": 26.67578125,
+    "docker_exec_count": 0,
+    "process_count": 514
+  },
+  "docker_results": [
+    {
+      "operation": "node_list",
+      "mode": "docker",
+      "count": 20,
+      "avg_ms": 484.87,
+      "median_ms": 477.27,
+      "p95_ms": 511.21,
+      "min_ms": 471.07,
+      "max_ms": 511.21,
+      "errors": 0
+    },
+    {
+      "operation": "topic_list",
+      "mode": "docker",
+      "count": 20,
+      "avg_ms": 496.02,
+      "median_ms": 493.8,
+      "p95_ms": 518.79,
+      "min_ms": 482.32,
+      "max_ms": 518.79,
+      "errors": 0
+    },
+    {
+      "operation": "service_list",
+      "mode": "docker",
+      "count": 20,
+      "avg_ms": 535.71,
+      "median_ms": 533.8,
+      "p95_ms": 566.69,
+      "min_ms": 517.81,
+      "max_ms": 566.69,
+      "errors": 0
+    },
+    {
+      "operation": "node_info",
+      "mode": "docker",
+      "count": 20,
+      "avg_ms": 498.86,
+      "median_ms": 493.93,
+      "p95_ms": 526.05,
+      "min_ms": 487.6,
+      "max_ms": 526.05,
+      "errors": 0
+    }
+  ],
+  "agent_results": [
+    {
+      "operation": "node_list",
+      "mode": "agent",
+      "count": 20,
+      "avg_ms": 0.79,
+      "median_ms": 0.77,
+      "p95_ms": 0.95,
+      "min_ms": 0.75,
+      "max_ms": 0.95,
+      "errors": 0
+    },
+    {
+      "operation": "topic_list",
+      "mode": "agent",
+      "count": 20,
+      "avg_ms": 1.65,
+      "median_ms": 1.53,
+      "p95_ms": 2.34,
+      "min_ms": 1.39,
+      "max_ms": 2.34,
+      "errors": 0
+    },
+    {
+      "operation": "service_list",
+      "mode": "agent",
+      "count": 20,
+      "avg_ms": 8.6,
+      "median_ms": 8.3,
+      "p95_ms": 14.07,
+      "min_ms": 7.56,
+      "max_ms": 14.07,
+      "errors": 0
+    },
+    {
+      "operation": "node_info",
+      "mode": "agent",
+      "count": 20,
+      "avg_ms": 0.2,
+      "median_ms": 0.19,
+      "p95_ms": 0.29,
+      "min_ms": 0.18,
+      "max_ms": 0.29,
+      "errors": 0
+    }
+  ]
+}

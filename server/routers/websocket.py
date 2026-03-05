@@ -13,6 +13,8 @@ from ..config import load_topic_groups_config
 
 router = APIRouter(tags=["websocket"])
 
+_ws_debug_counter = [0]  # mutable to allow closure update
+
 
 @router.websocket("/ws/nodes/status")
 async def nodes_status_websocket(websocket: WebSocket):
@@ -37,6 +39,12 @@ async def nodes_status_websocket(websocket: WebSocket):
                         n.name: n.status.value
                         for n in response.nodes
                     }
+
+                    # Debug first update
+                    if _ws_debug_counter[0] < 3:
+                        _ws_debug_counter[0] += 1
+                        print(f"[ws/nodes] Update #{_ws_debug_counter[0]}: "
+                              f"active={response.active} inactive={response.inactive} total={response.total}")
 
                     # Send update
                     await websocket.send_json({

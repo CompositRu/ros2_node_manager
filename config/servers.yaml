@@ -4,6 +4,13 @@
 # The first server in the list will be used for auto-connection on startup.
 
 servers:
+  # Agent connection (monitoring_agent node inside Docker)
+  # No docker exec — communicates via WebSocket directly with ROS2 node.
+  - id: local-agent
+    name: "Local Agent"
+    type: agent
+    agent_url: "ws://localhost:9090"
+    
   - id: local
     name: "Local Docker"
     type: local
@@ -20,12 +27,7 @@ servers:
     password: "1qaz@WSX"
     ros_workspace: "$HOME/tram.autoware"
 
-  # Agent connection (monitoring_agent node inside Docker)
-  # No docker exec — communicates via WebSocket directly with ROS2 node.
-  # - id: local-agent
-  #   name: "Local Agent"
-  #   type: agent
-  #   agent_url: "ws://localhost:9090"
+
 
   # Another remote server (example)
   # - id: tram-test

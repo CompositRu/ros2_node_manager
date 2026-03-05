@@ -195,6 +195,8 @@ class AgentConnection(BaseConnection):
         try:
             # Parse the command to determine subscription type
             channel, params = self._parse_stream_command(cmd)
+            # Extract local-only options before sending to agent
+            field_path = params.pop('_field_path', None)
             sub_id = await self._subscribe(channel, params)
             queue = self._subscription_queues.get(sub_id)
 
@@ -206,7 +208,16 @@ class AgentConnection(BaseConnection):
 
                 # Convert agent JSON data to YAML lines for backward compat
                 if channel == 'topic.echo':
-                    for line in self._json_to_yaml_lines(data.get('data', {})):
+                    msg_data = data.get('data', {})
+                    # Apply --field extraction (e.g. twist.twist.linear)
+                    if field_path:
+                        for part in field_path.split('.'):
+                            if isinstance(msg_data, dict):
+                                msg_data = msg_data.get(part, {})
+                            else:
+                                msg_data = {}
+                                break
+                    for line in self._json_to_yaml_lines(msg_data):
                         yield line
                     yield '---'
                 elif channel == 'topic.hz':
@@ -394,8 +405,19 @@ class AgentConnection(BaseConnection):
         m = re.match(r'ros2 topic echo\s+(\S+)', cmd)
         if m:
             topic = m.group(1)
+            # Route well-known topics to dedicated agent channels
+            if topic == '/diagnostics':
+                return 'diagnostics', {}
+            if topic == '/rosout':
+                return 'logs', {}
             no_arr = '--no-arr' in cmd
-            return 'topic.echo', {'topic': topic, 'no_arr': no_arr}
+            # Extract --field option (e.g. --field twist.twist.linear)
+            field_match = re.search(r'--field\s+(\S+)', cmd)
+            field_path = field_match.group(1) if field_match else None
+            return 'topic.echo', {
+                'topic': topic, 'no_arr': no_arr,
+                '_field_path': field_path,  # local-only, not sent to agent
+            }
 
         # ros2 topic hz {topic}
         m = re.match(r'ros2 topic hz\s+(\S+)', cmd)
@@ -407,25 +429,45 @@ class AgentConnection(BaseConnection):
     # === Output formatting helpers ===
 
     @staticmethod
-    def _json_to_yaml_lines(data: dict) -> list[str]:
-        """Convert JSON dict to simple YAML-like lines for backward compat."""
+    def _json_to_yaml_lines(data, indent: int = 0) -> list[str]:
+        """Convert JSON data to YAML-like lines recursively."""
+        prefix = '  ' * indent
         lines = []
-        for key, value in data.items():
-            if isinstance(value, dict):
-                lines.append(f'{key}:')
-                for k2, v2 in value.items():
-                    lines.append(f'  {k2}: {v2}')
-            elif isinstance(value, list):
-                lines.append(f'{key}:')
-                for item in value:
-                    if isinstance(item, dict):
-                        lines.append(f'  -')
-                        for k2, v2 in item.items():
-                            lines.append(f'    {k2}: {v2}')
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, dict):
+                    lines.append(f'{prefix}{key}:')
+                    lines.extend(AgentConnection._json_to_yaml_lines(value, indent + 1))
+                elif isinstance(value, list):
+                    lines.append(f'{prefix}{key}:')
+                    lines.extend(AgentConnection._list_to_yaml_lines(value, indent))
+                else:
+                    lines.append(f'{prefix}{key}: {value}')
+        elif isinstance(data, list):
+            lines.extend(AgentConnection._list_to_yaml_lines(data, indent))
+        return lines
+
+    @staticmethod
+    def _list_to_yaml_lines(items: list, indent: int) -> list[str]:
+        """Convert a list to YAML-like lines."""
+        prefix = '  ' * indent
+        lines = []
+        for item in items:
+            if isinstance(item, dict):
+                first = True
+                for k, v in item.items():
+                    if first:
+                        leader = f'{prefix}- {k}:'
+                        first = False
                     else:
-                        lines.append(f'  - {item}')
+                        leader = f'{prefix}  {k}:'
+                    if isinstance(v, (dict, list)):
+                        lines.append(leader)
+                        lines.extend(AgentConnection._json_to_yaml_lines(v, indent + 2))
+                    else:
+                        lines.append(f'{leader} {v}')
             else:
-                lines.append(f'{key}: {value}')
+                lines.append(f'{prefix}- {item}')
         return lines
 
     @staticmethod

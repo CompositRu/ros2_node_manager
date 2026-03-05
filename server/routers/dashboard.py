@@ -228,10 +228,10 @@ async def _get_gpu_info(conn) -> dict | None:
 
 
 async def _get_node_counts(app_state) -> dict:
-    """Get node counts from NodeService."""
+    """Get node counts from NodeService (triggers refresh if stale)."""
     try:
         if app_state.node_service:
-            response = app_state.node_service.get_cached_nodes()
+            response = await app_state.node_service.refresh_nodes()
             return {
                 "active": response.active,
                 "inactive": response.inactive,

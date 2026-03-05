@@ -108,6 +108,9 @@ def _parse_diagnostic_array(text: str) -> list[DiagnosticItem]:
     """Parse a DiagnosticArray message from ros2 topic echo output."""
     items = []
 
+    # Strip YAML document separator so safe_load doesn't choke
+    text = text.replace('\n---', '').rstrip('-').rstrip()
+
     # Normalize byte level values to integers before parsing
     text = _normalize_byte_levels(text)
 
