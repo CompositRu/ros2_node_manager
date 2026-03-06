@@ -706,22 +706,68 @@ export function TopicTree({ connected }) {
               onInfo={handleInfo}
             />
           ))}
-        {/* Root-level topics (unlikely but handle) */}
-        {tree.topics.map(topic => (
-          <div
-            key={topic.name}
-            className={`flex items-center gap-2 py-0.5 px-1 rounded cursor-pointer ${
-              selectedTopic === topic.name ? 'bg-blue-900' : 'hover:bg-gray-700'
-            }`}
-            onClick={() => setSelectedTopic(selectedTopic === topic.name ? null : topic.name)}
-          >
-            <span className="text-green-400 text-xs">#</span>
-            <span className="text-gray-200 truncate">{topic.name}</span>
-            {topic.type && (
-              <span className="text-gray-500 text-xs ml-auto truncate max-w-[220px]">{topic.type}</span>
-            )}
-          </div>
-        ))}
+        {/* Root-level topics (no namespace) */}
+        {tree.topics
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map(topic => {
+            const isSelected = selectedTopic === topic.name;
+            const hzValue = hzValues[topic.name];
+            return (
+              <div
+                key={topic.name}
+                className={`flex items-center gap-2 py-0.5 px-1 rounded cursor-pointer ${
+                  isSelected ? 'bg-blue-900 hover:bg-blue-800' : 'hover:bg-gray-700'
+                }`}
+                onClick={() => setSelectedTopic(isSelected ? null : topic.name)}
+                title={topic.name}
+              >
+                <span className="text-green-400 text-xs font-mono">#</span>
+                <span className="text-gray-200 text-sm font-mono truncate">{topic.name}</span>
+                <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+                  {hzValue !== undefined && <HzBadge hz={hzValue} />}
+                  {isSelected && (
+                    <>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleInfo(topic.name); }}
+                        className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${
+                          infoTopic === topic.name
+                            ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                            : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                        }`}
+                      >
+                        Info
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleHz(topic.name); }}
+                        className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${
+                          hzTopic === topic.name
+                            ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                            : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                        }`}
+                      >
+                        Hz
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleEcho(topic.name); }}
+                        className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${
+                          echoTopic === topic.name
+                            ? 'bg-red-600 hover:bg-red-700 text-white'
+                            : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                        }`}
+                      >
+                        {echoTopic === topic.name ? 'Stop' : 'Echo'}
+                      </button>
+                    </>
+                  )}
+                  {!isSelected && hzValue === undefined && topic.type && (
+                    <span className="text-gray-500 text-xs truncate max-w-[220px] flex-shrink-0" title={topic.type}>
+                      {topic.type}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
       </div>
 
       {/* Topic Info Panel */}

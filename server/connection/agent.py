@@ -18,7 +18,6 @@ import websockets
 from websockets.client import WebSocketClientProtocol
 
 from .base import BaseConnection, ConnectionError, ContainerNotFoundError
-from ..services.metrics import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -126,43 +125,76 @@ class AgentConnection(BaseConnection):
         self._subscription_queues.pop(sub_id, None)
 
     async def _reader_loop(self) -> None:
-        """Background task: read WebSocket messages and dispatch."""
-        try:
-            async for raw in self._ws:
-                try:
-                    msg = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
+        """Background task: read WebSocket messages and dispatch, with auto-reconnect."""
+        delay = self._reconnect_delay
+        max_delay = 30.0
 
-                # Response to a request
-                if 'id' in msg and msg['id'] is not None:
-                    req_id = msg['id']
-                    fut = self._pending.pop(req_id, None)
-                    if fut and not fut.done():
-                        if 'error' in msg:
-                            err = msg['error']
-                            fut.set_exception(ConnectionError(
-                                f"Agent error {err.get('code')}: {err.get('message')}"
-                            ))
-                        else:
-                            fut.set_result(msg.get('result'))
+        while True:
+            try:
+                async for raw in self._ws:
+                    delay = self._reconnect_delay  # reset on successful message
+                    try:
+                        msg = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
 
-                # Subscription event
-                elif msg.get('method') == 'event':
-                    params = msg.get('params', {})
-                    sub_id = params.get('subscription', '')
-                    queue = self._subscription_queues.get(sub_id)
-                    if queue:
-                        try:
-                            queue.put_nowait(params.get('data'))
-                        except asyncio.QueueFull:
-                            pass  # Drop oldest if full
+                    # Response to a request
+                    if 'id' in msg and msg['id'] is not None:
+                        req_id = msg['id']
+                        fut = self._pending.pop(req_id, None)
+                        if fut and not fut.done():
+                            if 'error' in msg:
+                                err = msg['error']
+                                fut.set_exception(ConnectionError(
+                                    f"Agent error {err.get('code')}: {err.get('message')}"
+                                ))
+                            else:
+                                fut.set_result(msg.get('result'))
 
-        except websockets.exceptions.ConnectionClosed:
+                    # Subscription event
+                    elif msg.get('method') == 'event':
+                        params = msg.get('params', {})
+                        sub_id = params.get('subscription', '')
+                        queue = self._subscription_queues.get(sub_id)
+                        if queue:
+                            try:
+                                queue.put_nowait(params.get('data'))
+                            except asyncio.QueueFull:
+                                pass  # Drop oldest if full
+
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.warning(f'Agent WebSocket connection lost: {e}')
+
+            # Connection lost — fail pending requests and clear subscriptions
             self._connected = False
-            logger.warning('Agent WebSocket connection closed')
-        except asyncio.CancelledError:
-            pass
+            for fut in self._pending.values():
+                if not fut.done():
+                    fut.set_exception(ConnectionError('Connection lost'))
+            self._pending.clear()
+            self._subscription_queues.clear()
+
+            # Auto-reconnect with exponential backoff
+            logger.info(f'Reconnecting to agent in {delay:.0f}s...')
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, max_delay)
+
+            try:
+                self._ws = await websockets.connect(
+                    self._agent_url,
+                    max_size=2 * 1024 * 1024,
+                    ping_interval=10,
+                    ping_timeout=30,
+                )
+                self._connected = True
+                delay = self._reconnect_delay
+                logger.info(f'Reconnected to monitoring agent at {self._agent_url}')
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.warning(f'Reconnect failed: {e}')
+                # Loop continues, will retry with increased delay
 
     # === BaseConnection abstract methods ===
 
@@ -174,11 +206,7 @@ class AgentConnection(BaseConnection):
         arbitrary shell execution.
         """
         cmd = cmd.strip()
-        metrics.subprocess_started()
-        try:
-            return await self._translate_command(cmd, timeout)
-        finally:
-            metrics.subprocess_finished()
+        return await self._translate_command(cmd, timeout)
 
     async def exec_stream(self, cmd: str) -> AsyncIterator[str]:
         """Translate a streaming ROS2 CLI command to agent subscription.
@@ -189,7 +217,6 @@ class AgentConnection(BaseConnection):
         if not self._connected:
             raise ConnectionError('Not connected')
 
-        metrics.stream_started()
         sub_id = None
 
         try:
@@ -239,7 +266,6 @@ class AgentConnection(BaseConnection):
         except Exception as e:
             logger.error(f'exec_stream error: {e}')
         finally:
-            metrics.stream_finished()
             if sub_id:
                 await self._unsubscribe(sub_id)
 
@@ -324,6 +350,20 @@ class AgentConnection(BaseConnection):
             return result.get('success', False)
         except Exception:
             return False
+
+    async def get_agent_stats(self) -> dict | None:
+        """Get monitoring agent's system stats (CPU, RAM)."""
+        try:
+            return await self._call('system.stats', timeout=5.0)
+        except Exception:
+            return None
+
+    async def get_agent_resources(self) -> dict | None:
+        """Get container-level resources (CPU, RAM, GPU) for dashboard."""
+        try:
+            return await self._call('system.resources', timeout=10.0)
+        except Exception:
+            return None
 
     # === No-op overrides for agent mode ===
 
@@ -494,7 +534,7 @@ class AgentConnection(BaseConnection):
         lines = ['status:']
         for s in data.get('statuses', []):
             lines.append(f'- name: "{s.get("name", "")}"')
-            lines.append(f'  level: "{s.get("level", 0)}"')
+            lines.append(f'  level: {s.get("level", 0)}')
             lines.append(f'  message: "{s.get("message", "")}"')
             lines.append(f'  hardware_id: "{s.get("hardware_id", "")}"')
             lines.append('  values:')

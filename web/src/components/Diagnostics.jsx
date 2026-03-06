@@ -493,16 +493,18 @@ export function Diagnostics({ connected }) {
     return Object.values(diagnostics);
   }, [diagnostics]);
 
-  const { localization, rest } = useMemo(() => {
+  const { localization, pinned, rest } = useMemo(() => {
     const loc = [];
+    const pin = [];
     const other = [];
     for (const item of diagList) {
       if (levelFilter !== 'All' && LEVEL_LABELS[item.level] !== levelFilter) continue;
       if (search && !item.name.toLowerCase().includes(search.toLowerCase())) continue;
       if (isLocalizationItem(item.name)) loc.push(item);
+      else if (isBagRecorderItem(item.name) || isLidarSyncItem(item.name) || isMrmItem(item.name)) pin.push(item);
       else other.push(item);
     }
-    return { localization: loc, rest: other };
+    return { localization: loc, pinned: pin, rest: other };
   }, [diagList, levelFilter, search]);
 
   // Counts by level
@@ -529,10 +531,10 @@ export function Diagnostics({ connected }) {
       <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-700 bg-gray-800 flex-shrink-0">
         <span className="text-gray-300 font-medium text-sm flex-shrink-0">Diagnostics</span>
 
-        {diagStatus === 'connecting' && <span className="text-yellow-400 text-xs flex-shrink-0">● Connecting...</span>}
-        {diagStatus === 'connected' && <span className="text-green-400 text-xs flex-shrink-0">● Connected</span>}
-        {diagStatus === 'error' && <span className="text-red-400 text-xs flex-shrink-0">● Error</span>}
-        {diagStatus === 'disconnected' && !connected && <span className="text-gray-500 text-xs flex-shrink-0">● Not connected</span>}
+        {!connected && <span className="text-gray-500 text-xs flex-shrink-0">● Not connected</span>}
+        {connected && diagStatus === 'connecting' && <span className="text-yellow-400 text-xs flex-shrink-0">● Connecting...</span>}
+        {connected && diagStatus === 'connected' && <span className="text-green-400 text-xs flex-shrink-0">● Connected</span>}
+        {connected && diagStatus === 'error' && <span className="text-red-400 text-xs flex-shrink-0">● Error</span>}
 
         {/* Counts */}
         {counts.total > 0 && (
@@ -581,9 +583,9 @@ export function Diagnostics({ connected }) {
       <div className="flex-1 overflow-auto p-4">
         <SystemWidgets diagnostics={diagnostics} />
 
-        {/* Localization cards — always pinned below widgets */}
-        {localization.length > 0 && (
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 mb-4">
+        {/* Pinned section: localization + bag recorder / lidar sync / MRM */}
+        {(localization.length > 0 || pinned.length > 0) && (
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 mb-6">
             {localization.map((item) => (
               <LocalizationCard
                 key={item.name}
@@ -591,10 +593,21 @@ export function Diagnostics({ connected }) {
                 onClick={() => setSelectedName(item.name)}
               />
             ))}
+            {pinned.map((item) =>
+              isBagRecorderItem(item.name) ? (
+                <BagRecorderCard key={item.name} item={item} onClick={() => setSelectedName(item.name)} />
+              ) : isLidarSyncItem(item.name) ? (
+                <LidarSyncCard key={item.name} item={item} onClick={() => setSelectedName(item.name)} />
+              ) : isMrmItem(item.name) ? (
+                <MrmCard key={item.name} item={item} onClick={() => setSelectedName(item.name)} />
+              ) : (
+                <DiagCard key={item.name} item={item} onClick={() => setSelectedName(item.name)} />
+              )
+            )}
           </div>
         )}
 
-        {rest.length === 0 && localization.length === 0 ? (
+        {rest.length === 0 && localization.length === 0 && pinned.length === 0 ? (
           <div className="text-gray-500 text-center py-8">
             {diagStatus === 'connecting'
               ? 'Connecting to diagnostics stream...'
@@ -608,33 +621,13 @@ export function Diagnostics({ connected }) {
           </div>
         ) : rest.length > 0 && (
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
-            {rest.map((item) =>
-              isBagRecorderItem(item.name) ? (
-                <BagRecorderCard
-                  key={item.name}
-                  item={item}
-                  onClick={() => setSelectedName(item.name)}
-                />
-              ) : isLidarSyncItem(item.name) ? (
-                <LidarSyncCard
-                  key={item.name}
-                  item={item}
-                  onClick={() => setSelectedName(item.name)}
-                />
-              ) : isMrmItem(item.name) ? (
-                <MrmCard
-                  key={item.name}
-                  item={item}
-                  onClick={() => setSelectedName(item.name)}
-                />
-              ) : (
-                <DiagCard
-                  key={item.name}
-                  item={item}
-                  onClick={() => setSelectedName(item.name)}
-                />
-              )
-            )}
+            {rest.map((item) => (
+              <DiagCard
+                key={item.name}
+                item={item}
+                onClick={() => setSelectedName(item.name)}
+              />
+            ))}
           </div>
         )}
       </div>

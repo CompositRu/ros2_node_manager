@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 from ..models import NodeStatus
 from ..services import stream_diagnostics, stream_bool_topic, stream_mrm_status, stream_group_echo
 from ..services.metrics import metrics
-from ..connection import ContainerNotFoundError
+from ..connection import ContainerNotFoundError, ConnectionError as ConnError
 from ..config import load_topic_groups_config
 
 router = APIRouter(tags=["websocket"])
@@ -58,9 +58,9 @@ async def nodes_status_websocket(websocket: WebSocket):
                         "nodes": nodes_status,
                         "timestamp": datetime.now().isoformat()
                     })
-                except ContainerNotFoundError as e:
-                    logger.warning(f"Container stopped, auto-disconnecting: {e}")
-                    # Notify client about container stop
+                except (ContainerNotFoundError, ConnError) as e:
+                    logger.warning(f"Connection lost, auto-disconnecting: {e}")
+                    # Notify client about connection loss
                     await websocket.send_json({
                         "type": "container_stopped",
                         "message": str(e)
@@ -70,7 +70,7 @@ async def nodes_status_websocket(websocket: WebSocket):
                     # Send disconnected status
                     await websocket.send_json({
                         "type": "disconnected",
-                        "message": "Server disconnected due to container stop"
+                        "message": "Server disconnected due to connection loss"
                     })
             else:
                 await websocket.send_json({

@@ -18,18 +18,9 @@
 | 1 | ROS2 нода monitoring_agent (все 10 модулей) | Done |
 | 2 | Backend AgentConnection (WebSocket клиент) | Done |
 | 3 | Интеграция и деплой | Partial (launch done, E2E testing remaining) |
+| 4 | E2E Test Fixes | Done |
 
 ## Текущая фаза
-
-**E2E Test Fixes — исправление проблем найденных при E2E тестировании**
-
-Результаты: 39/43 passed, 2 failed, 2 skipped. Файл: `results.json`
-
-Проблемы:
-1. `/health` endpoint перехватывается SPA catch-all route — возвращает HTML вместо JSON
-2. `/api/health` использует `._connected` вместо `.connected`
-3. `api.GET /api/nodes` — 3.3s латентность при 200 нодах (надо профилировать)
-4. `rpc.sub.diagnostics` и `ws.WS /ws/alerts` — 10s таймауты (load_generator не генерирует diagnostics/alerts)
 
 
 

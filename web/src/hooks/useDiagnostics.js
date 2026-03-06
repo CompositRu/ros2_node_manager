@@ -19,6 +19,7 @@ export function useDiagnostics(enabled = true) {
         wsRef.current = null;
       }
       setStatus('disconnected');
+      setDiagnostics({});
       return;
     }
 
@@ -62,6 +63,10 @@ export function useDiagnostics(enabled = true) {
       },
       () => {
         setStatus('connected');
+      },
+      () => {
+        setStatus('disconnected');
+        setDiagnostics({});
       }
     );
 

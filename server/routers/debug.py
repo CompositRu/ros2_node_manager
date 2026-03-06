@@ -23,6 +23,13 @@ async def get_stats():
         "container": connection.container if connection else None,
     }
 
+    # Add agent stats if using agent connection
+    from ..connection.agent import AgentConnection
+    if isinstance(connection, AgentConnection) and connection.connected:
+        agent_stats = await connection.get_agent_stats()
+        if agent_stats:
+            snapshot["agent"] = agent_stats
+
     # Add alert service status
     snapshot["alert_service"] = {
         "running": (

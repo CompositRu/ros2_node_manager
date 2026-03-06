@@ -10,6 +10,7 @@ import { useAlerts } from './hooks/useAlerts';
 import { ToastContainer } from './components/ToastContainer';
 import { ActivityBar } from './components/ActivityBar';
 import { AppStats } from './components/AppStats';
+import { useSystemStats } from './hooks/useSystemStats';
 import { UnifiedLogs } from './components/UnifiedLogs';
 import { Diagnostics } from './components/Diagnostics';
 import { Topics } from './components/Topics';
@@ -31,6 +32,7 @@ function App() {
   const nodes = useNodes({ onDisconnect: server.handleServerDisconnected });
 
   useAlerts(server.connected);
+  const { stats } = useSystemStats(true);
 
   // Refresh nodes when server connection changes to connected
   const wasConnected = useRef(server.connected);
@@ -253,12 +255,20 @@ function App() {
       <footer className="px-4 py-2 border-t border-gray-700 bg-gray-800 text-xs text-gray-500 flex-shrink-0">
         <div className="flex items-center justify-between">
           <span>Tram Monitoring System v0.6.0</span>
-          {server.error && (
-            <span className="text-red-400">Error: {server.error}</span>
-          )}
-          {nodes.error && (
-            <span className="text-red-400">Nodes Error: {nodes.error}</span>
-          )}
+          <div className="flex items-center gap-3">
+            {server.error && (
+              <span className="text-red-400">Error: {server.error}</span>
+            )}
+            {nodes.error && (
+              <span className="text-red-400">Nodes Error: {nodes.error}</span>
+            )}
+            <span className="text-gray-500">
+              CPU: {stats?.process?.cpu_percent?.toFixed(1) ?? '--'}%
+              {stats?.agent && (
+                <> · Agent: {stats.agent.cpu_percent?.toFixed(1) ?? '--'}%</>
+              )}
+            </span>
+          </div>
         </div>
       </footer>
       <ToastContainer />

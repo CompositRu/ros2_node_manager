@@ -113,7 +113,7 @@ export function createUnifiedLogsSocket(onMessage, onError, onConnected, onHisto
   return ws;
 }
 
-export function createDiagnosticsSocket(onMessage, onError, onConnected) {
+export function createDiagnosticsSocket(onMessage, onError, onConnected, onClose) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
   const url = `${protocol}//${host}/ws/diagnostics`;
@@ -147,6 +147,7 @@ export function createDiagnosticsSocket(onMessage, onError, onConnected) {
 
   ws.onclose = () => {
     console.log('Diagnostics WebSocket closed');
+    if (onClose) onClose();
   };
 
   return ws;

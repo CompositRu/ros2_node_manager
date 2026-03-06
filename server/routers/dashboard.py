@@ -88,39 +88,60 @@ async def get_dashboard():
     # Ensure speed monitor is running
     speed_mon = await _ensure_speed_monitor(conn)
 
-    # Gather data concurrently
-    docker_info, docker_stats, gpu_info, node_counts, topic_count, service_count, cpu_count = await asyncio.gather(
-        _get_docker_info(conn),
-        _get_docker_stats(conn),
-        _get_gpu_info(conn),
-        _get_node_counts(app_state),
-        _get_topic_count(conn),
-        _get_service_count(conn),
-        _get_cpu_count(conn),
-    )
+    # Check if using agent connection — collect resources via RPC
+    from ..connection.agent import AgentConnection
+    is_agent = isinstance(conn, AgentConnection)
 
-    # Docker info (uptime)
-    if docker_info:
-        result["docker"]["started_at"] = docker_info.get("started_at")
-        result["docker"]["uptime_seconds"] = docker_info.get("uptime_seconds")
+    if is_agent:
+        # Agent mode: get resources directly from agent inside Docker
+        agent_resources, node_counts, topic_count, service_count = await asyncio.gather(
+            conn.get_agent_resources(),
+            _get_node_counts(app_state),
+            _get_topic_count(conn),
+            _get_service_count(conn),
+        )
 
-    # Docker stats (CPU, RAM) — normalize CPU by core count
-    if docker_stats:
-        raw_cpu = docker_stats.get("cpu_percent", 0)
-        if cpu_count and cpu_count > 0:
-            result["resources"]["cpu_percent"] = round(raw_cpu / cpu_count, 1)
-        else:
-            result["resources"]["cpu_percent"] = raw_cpu
-        result["resources"]["memory_used_gb"] = docker_stats.get("memory_used_gb")
-        result["resources"]["memory_limit_gb"] = docker_stats.get("memory_limit_gb")
-        result["resources"]["memory_percent"] = docker_stats.get("memory_percent")
+        if agent_resources:
+            result["docker"]["uptime_seconds"] = agent_resources.get("uptime_seconds")
+            result["resources"]["cpu_percent"] = agent_resources.get("cpu_percent")
+            result["resources"]["memory_used_gb"] = agent_resources.get("memory_used_gb")
+            result["resources"]["memory_limit_gb"] = agent_resources.get("memory_limit_gb")
+            result["resources"]["memory_percent"] = agent_resources.get("memory_percent")
+            result["resources"]["gpu_percent"] = agent_resources.get("gpu_percent")
+            result["resources"]["gpu_memory_used_mb"] = agent_resources.get("gpu_memory_used_mb")
+            result["resources"]["gpu_memory_total_mb"] = agent_resources.get("gpu_memory_total_mb")
+            result["resources"]["gpu_name"] = agent_resources.get("gpu_name")
+    else:
+        # Docker exec mode: collect via host commands
+        docker_info, docker_stats, gpu_info, node_counts, topic_count, service_count, cpu_count = await asyncio.gather(
+            _get_docker_info(conn),
+            _get_docker_stats(conn),
+            _get_gpu_info(conn),
+            _get_node_counts(app_state),
+            _get_topic_count(conn),
+            _get_service_count(conn),
+            _get_cpu_count(conn),
+        )
 
-    # GPU
-    if gpu_info:
-        result["resources"]["gpu_percent"] = gpu_info.get("gpu_percent")
-        result["resources"]["gpu_memory_used_mb"] = gpu_info.get("memory_used_mb")
-        result["resources"]["gpu_memory_total_mb"] = gpu_info.get("memory_total_mb")
-        result["resources"]["gpu_name"] = gpu_info.get("name")
+        if docker_info:
+            result["docker"]["started_at"] = docker_info.get("started_at")
+            result["docker"]["uptime_seconds"] = docker_info.get("uptime_seconds")
+
+        if docker_stats:
+            raw_cpu = docker_stats.get("cpu_percent", 0)
+            if cpu_count and cpu_count > 0:
+                result["resources"]["cpu_percent"] = round(raw_cpu / cpu_count, 1)
+            else:
+                result["resources"]["cpu_percent"] = raw_cpu
+            result["resources"]["memory_used_gb"] = docker_stats.get("memory_used_gb")
+            result["resources"]["memory_limit_gb"] = docker_stats.get("memory_limit_gb")
+            result["resources"]["memory_percent"] = docker_stats.get("memory_percent")
+
+        if gpu_info:
+            result["resources"]["gpu_percent"] = gpu_info.get("gpu_percent")
+            result["resources"]["gpu_memory_used_mb"] = gpu_info.get("memory_used_mb")
+            result["resources"]["gpu_memory_total_mb"] = gpu_info.get("memory_total_mb")
+            result["resources"]["gpu_name"] = gpu_info.get("name")
 
     # Node counts
     result["nodes"] = node_counts

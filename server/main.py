@@ -19,14 +19,21 @@ _LOG_DIR = Path(__file__).parent.parent / "logs"
 _LOG_DIR.mkdir(exist_ok=True)
 _LOG_FILE = _LOG_DIR / "app.log"
 
-_file_handler = logging.FileHandler(_LOG_FILE, mode="w", encoding="utf-8")
-_file_handler.setLevel(logging.DEBUG)
-_file_handler.setFormatter(logging.Formatter(
+_log_formatter = logging.Formatter(
     "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
-))
+)
+
+_file_handler = logging.FileHandler(_LOG_FILE, mode="w", encoding="utf-8")
+_file_handler.setLevel(logging.DEBUG)
+_file_handler.setFormatter(_log_formatter)
+
+_console_handler = logging.StreamHandler()
+_console_handler.setLevel(logging.INFO)
+_console_handler.setFormatter(_log_formatter)
 
 logging.root.addHandler(_file_handler)
+logging.root.addHandler(_console_handler)
 logging.root.setLevel(logging.INFO)
 
 
@@ -44,7 +51,9 @@ class _QuietAccessFilter(logging.Filter):
         return True
 
 
-logging.getLogger("uvicorn.access").addFilter(_QuietAccessFilter())
+_uv_access = logging.getLogger("uvicorn.access")
+_uv_access.handlers.clear()
+_uv_access.propagate = False
 
 # from .config import settings, load_servers_config, get_server_by_id
 from .models import ServerConfig, ServerType
