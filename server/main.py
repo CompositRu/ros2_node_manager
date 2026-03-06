@@ -37,20 +37,7 @@ logging.root.addHandler(_console_handler)
 logging.root.setLevel(logging.INFO)
 
 
-# Suppress noisy uvicorn access logs for polling endpoints
-class _QuietAccessFilter(logging.Filter):
-    """Downgrade frequent polling endpoints from INFO to DEBUG."""
-    _quiet_paths = ("/api/debug/stats", "/health", "/api/health")
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        if any(p in msg for p in self._quiet_paths):
-            if record.levelno <= logging.INFO:
-                record.levelno = logging.DEBUG
-                record.levelname = "DEBUG"
-        return True
-
-
+# Disable uvicorn access logs (noisy polling spam)
 _uv_access = logging.getLogger("uvicorn.access")
 _uv_access.handlers.clear()
 _uv_access.propagate = False

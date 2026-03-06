@@ -9,7 +9,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 logger = logging.getLogger(__name__)
 
 from ..models import NodeStatus
-from ..services import stream_diagnostics, stream_bool_topic, stream_mrm_status, stream_group_echo
+from ..services import stream_diagnostics, stream_bool_topic, stream_mrm_status, stream_mrm_state, stream_group_echo
 from ..services.metrics import metrics
 from ..connection import ContainerNotFoundError, ConnectionError as ConnError
 from ..config import load_topic_groups_config
@@ -166,6 +166,10 @@ async def diagnostics_websocket(websocket: WebSocket):
             asyncio.create_task(run_with_retry(
                 "mrm_status",
                 lambda: stream_mrm_status(conn),
+            )),
+            asyncio.create_task(run_with_retry(
+                "mrm_state",
+                lambda: stream_mrm_state(conn),
             )),
         ]
 

@@ -13,6 +13,7 @@ from fastapi import APIRouter
 logger = logging.getLogger(__name__)
 
 from ..services.speed_monitor import SpeedMonitor
+from ..services.diagnostics_collector import _MRM_STATE_MAP, _MRM_BEHAVIOR_MAP
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -76,6 +77,7 @@ async def get_dashboard():
         "topics_count": 0,
         "services_count": 0,
         "speed_kmh": None,
+        "mrm_state": None,
     }
 
     conn = app_state.connection
@@ -94,11 +96,12 @@ async def get_dashboard():
 
     if is_agent:
         # Agent mode: get resources directly from agent inside Docker
-        agent_resources, node_counts, topic_count, service_count = await asyncio.gather(
+        agent_resources, node_counts, topic_count, service_count, mrm_state = await asyncio.gather(
             conn.get_agent_resources(),
             _get_node_counts(app_state),
             _get_topic_count(conn),
             _get_service_count(conn),
+            _get_mrm_state(conn),
         )
 
         if agent_resources:
@@ -113,7 +116,7 @@ async def get_dashboard():
             result["resources"]["gpu_name"] = agent_resources.get("gpu_name")
     else:
         # Docker exec mode: collect via host commands
-        docker_info, docker_stats, gpu_info, node_counts, topic_count, service_count, cpu_count = await asyncio.gather(
+        docker_info, docker_stats, gpu_info, node_counts, topic_count, service_count, cpu_count, mrm_state = await asyncio.gather(
             _get_docker_info(conn),
             _get_docker_stats(conn),
             _get_gpu_info(conn),
@@ -121,6 +124,7 @@ async def get_dashboard():
             _get_topic_count(conn),
             _get_service_count(conn),
             _get_cpu_count(conn),
+            _get_mrm_state(conn),
         )
 
         if docker_info:
@@ -153,6 +157,9 @@ async def get_dashboard():
     # Speed — read latest from background monitor
     if speed_mon:
         result["speed_kmh"] = speed_mon.speed_kmh
+
+    # MRM state
+    result["mrm_state"] = mrm_state
 
     return result
 
@@ -310,3 +317,28 @@ async def _get_cpu_count(conn) -> int:
         return int(output.strip())
     except Exception:
         return 0
+
+
+async def _get_mrm_state(conn) -> dict | None:
+    """Get MRM state via one-shot topic echo."""
+    try:
+        output = await conn.exec_command(
+            "ros2 topic echo /api/fail_safe/mrm_state --once",
+            timeout=3.0,
+        )
+        state_match = re.search(r"state:\s*(\d+)", output)
+        if not state_match:
+            return None
+        state_val = int(state_match.group(1))
+        behavior_match = re.search(r"behavior:\s*(\d+)", output)
+        behavior_val = int(behavior_match.group(1)) if behavior_match else 1
+        _, state_label = _MRM_STATE_MAP.get(state_val, (2, "MRM_FAILED"))
+        behavior_label = _MRM_BEHAVIOR_MAP.get(behavior_val, "UNKNOWN")
+        return {
+            "state": state_val,
+            "behavior": behavior_val,
+            "state_label": state_label,
+            "behavior_label": behavior_label,
+        }
+    except Exception:
+        return None

@@ -279,6 +279,56 @@ async def stream_mrm_status(
         logger.error(f"MRM status stream error: {e}")
 
 
+# MRM state value → (diagnostic level, label)
+_MRM_STATE_MAP = {
+    1: (0, "NORMAL"),
+    2: (1, "MRM_OPERATING"),
+    3: (0, "MRM_SUCCEEDED"),
+    4: (2, "MRM_FAILED"),
+}
+
+_MRM_BEHAVIOR_MAP = {
+    1: "NONE",
+    2: "EMERGENCY_STOP",
+    3: "COMFORTABLE_STOP",
+}
+
+
+async def stream_mrm_state(
+    connection: BaseConnection,
+) -> AsyncIterator[list[DiagnosticItem]]:
+    """Stream /api/fail_safe/mrm_state topic and yield DiagnosticItem."""
+    cmd = "ros2 topic echo /api/fail_safe/mrm_state"
+    buffer = []
+
+    try:
+        msg_count = 0
+        async for line in connection.exec_stream(cmd):
+            buffer.append(line)
+            if line.strip() == "---":
+                text = "\n".join(buffer)
+                buffer = []
+                state_match = re.search(r"state:\s*(\d+)", text)
+                if state_match:
+                    msg_count += 1
+                    state_val = int(state_match.group(1))
+                    level, label = _MRM_STATE_MAP.get(state_val, (2, "MRM_FAILED"))
+                    behavior_match = re.search(r"behavior:\s*(\d+)", text)
+                    behavior_val = int(behavior_match.group(1)) if behavior_match else 1
+                    behavior_label = _MRM_BEHAVIOR_MAP.get(behavior_val, "UNKNOWN")
+                    if msg_count <= 2:
+                        logger.debug(f"MRM state: {label} behavior={behavior_label} (state={state_val})")
+                    yield [DiagnosticItem(
+                        name="mrm_state",
+                        level=level,
+                        message=label,
+                        values=[{"key": "behavior", "value": behavior_label}],
+                        timestamp=datetime.now(),
+                    )]
+    except Exception as e:
+        logger.error(f"MRM state stream error: {e}")
+
+
 async def stream_bool_topic(
     connection: BaseConnection,
     topic: str,

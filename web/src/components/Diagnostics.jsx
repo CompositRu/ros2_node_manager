@@ -46,15 +46,35 @@ function isMrmItem(name) {
   return name.includes('mrm_status');
 }
 
+function isMrmStateItem(name) {
+  return name === 'mrm_state';
+}
+
 // MRM status colors based on message text (matches RViz palette, static)
 const MRM_COLORS = {
-  NORMAL:    { text: 'text-green-400',  dot: 'bg-green-400',  bg: 'bg-green-900/30 border-green-700/50' },
-  ERROR:     { text: 'text-red-400',    dot: 'bg-red-400',    bg: 'bg-red-900/30 border-red-700/50' },
-  OPERATING: { text: 'text-orange-400', dot: 'bg-orange-400', bg: 'bg-orange-900/30 border-orange-700/50' },
-  SUCCEEDED: { text: 'text-green-400',  dot: 'bg-green-400',  bg: 'bg-green-900/30 border-green-700/50' },
-  FAILED:    { text: 'text-red-400',    dot: 'bg-red-400',    bg: 'bg-red-900/30 border-red-700/50' },
+  NORMAL:        { text: 'text-green-400',  dot: 'bg-green-400',  bg: 'bg-green-900/30 border-green-700/50' },
+  ERROR:         { text: 'text-red-400',    dot: 'bg-red-400',    bg: 'bg-red-900/30 border-red-700/50' },
+  OPERATING:     { text: 'text-orange-400', dot: 'bg-orange-400', bg: 'bg-orange-900/30 border-orange-700/50' },
+  SUCCEEDED:     { text: 'text-green-400',  dot: 'bg-green-400',  bg: 'bg-green-900/30 border-green-700/50' },
+  FAILED:        { text: 'text-red-400',    dot: 'bg-red-400',    bg: 'bg-red-900/30 border-red-700/50' },
+  MRM_OPERATING: { text: 'text-orange-400', dot: 'bg-orange-400', bg: 'bg-orange-900/30 border-orange-700/50' },
+  MRM_SUCCEEDED: { text: 'text-green-400',  dot: 'bg-green-400',  bg: 'bg-green-900/30 border-green-700/50' },
+  MRM_FAILED:    { text: 'text-red-400',    dot: 'bg-red-400',    bg: 'bg-red-900/30 border-red-700/50' },
 };
 const MRM_DEFAULT_COLORS = MRM_COLORS.ERROR;
+
+const MRM_STATE_LABELS = {
+  NORMAL: 'Норма',
+  MRM_OPERATING: 'Выполняется маневр минимального риска',
+  MRM_SUCCEEDED: 'Маневр завершён успешно',
+  MRM_FAILED: 'Маневр минимального риска не удался',
+};
+
+const MRM_BEHAVIOR_LABELS = {
+  NONE: '',
+  EMERGENCY_STOP: 'Режим: экстренная остановка',
+  COMFORTABLE_STOP: 'Режим: плавная остановка',
+};
 
 const BAG_RECORDER_MESSAGES = {
   0: 'Идёт запись бэга',
@@ -218,7 +238,34 @@ function MrmCard({ item, onClick }) {
           {item.message || 'UNKNOWN'}
         </span>
       </div>
-      <div className="text-xs text-gray-400">MRM</div>
+      <div className="text-xs text-gray-400">Маневр минимального риска (старый)</div>
+    </button>
+  );
+}
+
+function MrmStateCard({ item, onClick }) {
+  const c = MRM_COLORS[item.message] ?? MRM_DEFAULT_COLORS;
+  const stateLabel = MRM_STATE_LABELS[item.message] ?? item.message ?? 'UNKNOWN';
+  const behaviorKv = item.values?.find(v => v.key === 'behavior');
+  const behaviorLabel = behaviorKv ? (MRM_BEHAVIOR_LABELS[behaviorKv.value] ?? behaviorKv.value) : '';
+
+  return (
+    <button
+      onClick={onClick}
+      className={`col-span-2 rounded border px-3 py-2.5 text-left transition-colors hover:brightness-125 cursor-pointer ${c.bg}`}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${c.dot}`} />
+        <span className={`text-sm font-semibold ${c.text}`}>
+          Маневр минимального риска: {stateLabel}
+        </span>
+      </div>
+      {behaviorLabel && (
+        <div className="text-xs text-gray-400">{behaviorLabel}</div>
+      )}
+      {!behaviorLabel && (
+        <div className="text-xs text-gray-400">Маневр минимального риска</div>
+      )}
     </button>
   );
 }
@@ -493,18 +540,20 @@ export function Diagnostics({ connected }) {
     return Object.values(diagnostics);
   }, [diagnostics]);
 
-  const { localization, pinned, rest } = useMemo(() => {
+  const { mrmState, localization, pinned, rest } = useMemo(() => {
+    const mrm = [];
     const loc = [];
     const pin = [];
     const other = [];
     for (const item of diagList) {
       if (levelFilter !== 'All' && LEVEL_LABELS[item.level] !== levelFilter) continue;
       if (search && !item.name.toLowerCase().includes(search.toLowerCase())) continue;
-      if (isLocalizationItem(item.name)) loc.push(item);
+      if (isMrmStateItem(item.name)) mrm.push(item);
+      else if (isLocalizationItem(item.name)) loc.push(item);
       else if (isBagRecorderItem(item.name) || isLidarSyncItem(item.name) || isMrmItem(item.name)) pin.push(item);
       else other.push(item);
     }
-    return { localization: loc, pinned: pin, rest: other };
+    return { mrmState: mrm, localization: loc, pinned: pin, rest: other };
   }, [diagList, levelFilter, search]);
 
   // Counts by level
@@ -583,6 +632,15 @@ export function Diagnostics({ connected }) {
       <div className="flex-1 overflow-auto p-4">
         <SystemWidgets diagnostics={diagnostics} />
 
+        {/* MRM State — pinned at very top */}
+        {mrmState.length > 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 mb-4">
+            {mrmState.map((item) => (
+              <MrmStateCard key={item.name} item={item} onClick={() => setSelectedName(item.name)} />
+            ))}
+          </div>
+        )}
+
         {/* Pinned section: localization + bag recorder / lidar sync / MRM */}
         {(localization.length > 0 || pinned.length > 0) && (
           <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 mb-6">
@@ -607,7 +665,7 @@ export function Diagnostics({ connected }) {
           </div>
         )}
 
-        {rest.length === 0 && localization.length === 0 && pinned.length === 0 ? (
+        {rest.length === 0 && localization.length === 0 && pinned.length === 0 && mrmState.length === 0 ? (
           <div className="text-gray-500 text-center py-8">
             {diagStatus === 'connecting'
               ? 'Connecting to diagnostics stream...'

@@ -259,6 +259,11 @@ class AgentConnection(BaseConnection):
                     for line in self._diag_event_to_yaml(data):
                         yield line
                     yield '---'
+                elif channel == 'mrm_state':
+                    msg_data = data.get('data', {})
+                    for line in self._json_to_yaml_lines(msg_data):
+                        yield line
+                    yield '---'
         except asyncio.CancelledError:
             raise
         except ConnectionError:
@@ -414,7 +419,12 @@ class AgentConnection(BaseConnection):
         m = re.match(r'ros2 topic echo\s+(\S+).*--once', cmd)
         if m:
             topic = m.group(1)
-            sub_id = await self._subscribe('topic.echo', {'topic': topic})
+            # Route well-known topics to dedicated channels
+            if topic == '/api/fail_safe/mrm_state':
+                channel, params = 'mrm_state', {}
+            else:
+                channel, params = 'topic.echo', {'topic': topic}
+            sub_id = await self._subscribe(channel, params)
             queue = self._subscription_queues.get(sub_id)
             try:
                 data = await asyncio.wait_for(queue.get(), timeout=timeout)
@@ -450,6 +460,8 @@ class AgentConnection(BaseConnection):
                 return 'diagnostics', {}
             if topic == '/rosout':
                 return 'logs', {}
+            if topic == '/api/fail_safe/mrm_state':
+                return 'mrm_state', {}
             no_arr = '--no-arr' in cmd
             # Extract --field option (e.g. --field twist.twist.linear)
             field_match = re.search(r'--field\s+(\S+)', cmd)

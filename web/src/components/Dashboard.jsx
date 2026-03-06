@@ -58,9 +58,48 @@ function StatusBanner({ status }) {
   );
 }
 
-function SpeedCard({ speed, status }) {
-  if (status.level === 'offline') return null;
+const MRM_STATE_STYLES = {
+  NORMAL:        { bg: 'bg-green-900/30',  border: 'border-green-600/50',  text: 'text-green-400',  dot: 'bg-green-400' },
+  MRM_OPERATING: { bg: 'bg-orange-900/30', border: 'border-orange-600/50', text: 'text-orange-400', dot: 'bg-orange-400' },
+  MRM_SUCCEEDED: { bg: 'bg-green-900/30',  border: 'border-green-600/50',  text: 'text-green-400',  dot: 'bg-green-400' },
+  MRM_FAILED:    { bg: 'bg-red-900/30',    border: 'border-red-600/50',    text: 'text-red-400',    dot: 'bg-red-400' },
+};
 
+const MRM_STATE_LABELS = {
+  NORMAL: 'Маневр минимального риска: норма',
+  MRM_OPERATING: 'Выполняется маневр минимального риска',
+  MRM_SUCCEEDED: 'Маневр минимального риска завершён успешно',
+  MRM_FAILED: 'Маневр минимального риска не удался',
+};
+
+const MRM_BEHAVIOR_LABELS = {
+  NONE: null,
+  EMERGENCY_STOP: 'Режим: экстренная остановка',
+  COMFORTABLE_STOP: 'Режим: плавная остановка',
+};
+
+function MrmStateCard({ mrmState }) {
+  if (!mrmState) return null;
+
+  const s = MRM_STATE_STYLES[mrmState.state_label] ?? MRM_STATE_STYLES.MRM_FAILED;
+  const label = MRM_STATE_LABELS[mrmState.state_label] ?? mrmState.state_label;
+  const behaviorLabel = MRM_BEHAVIOR_LABELS[mrmState.behavior_label];
+  const isNormal = mrmState.state_label === 'NORMAL';
+
+  return (
+    <div className={`${s.bg} ${s.border} border rounded-lg p-5 flex flex-col justify-center`}>
+      <div className="flex items-center gap-2 mb-1">
+        <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${s.dot} ${!isNormal ? 'animate-pulse' : ''}`} />
+        <span className={`text-sm font-semibold ${s.text}`}>{label}</span>
+      </div>
+      {behaviorLabel && (
+        <div className="text-xs text-gray-400">{behaviorLabel}</div>
+      )}
+    </div>
+  );
+}
+
+function SpeedCard({ speed, status }) {
   const display = (status.level === 'critical' || speed == null) ? '—' : speed;
 
   return (
@@ -223,8 +262,13 @@ export function Dashboard({ connected, onSectionChange }) {
           {/* System Status Banner */}
           <StatusBanner status={status} />
 
-          {/* Speed */}
-          <SpeedCard speed={data?.speed_kmh} status={status} />
+          {/* Speed + MRM State */}
+          {status.level !== 'offline' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <SpeedCard speed={data?.speed_kmh} status={status} />
+              <MrmStateCard mrmState={data?.mrm_state} />
+            </div>
+          )}
 
           {/* Resources + Quick Stats */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

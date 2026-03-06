@@ -254,7 +254,7 @@ function App() {
       {/* Footer */}
       <footer className="px-4 py-2 border-t border-gray-700 bg-gray-800 text-xs text-gray-500 flex-shrink-0">
         <div className="flex items-center justify-between">
-          <span>Tram Monitoring System v0.6.0</span>
+          <span>Tram Monitoring System v0.7.0</span>
           <div className="flex items-center gap-3">
             {server.error && (
               <span className="text-red-400">Error: {server.error}</span>
