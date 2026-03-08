@@ -1,6 +1,6 @@
 # Tram Monitoring System
 
-Веб-интерфейс для мониторинга ROS2 нод в Docker контейнерах на автономных трамваях. Подключается к Docker контейнеру с ROS2 через локальный `docker exec` или удалённо через SSH.
+Веб-интерфейс для мониторинга ROS2 нод на автономных трамваях. Подключается к Docker контейнеру с ROS2 через **monitoring_agent** (WebSocket JSON-RPC).
 
 ![Python](https://img.shields.io/badge/python-3.10+-green)
 ![React](https://img.shields.io/badge/react-18-blue)
@@ -10,7 +10,7 @@
 
 Интерфейс в стиле VS Code: панель навигации слева, рабочая область справа. Восемь секций: Dashboard, Diagnostics, Nodes, Topics, Services, Logs, History, App Stats.
 
-Подключается к одному из настроенных серверов (Docker-контейнеров). Первый сервер подключается автоматически при старте.
+Подключается к одному из настроенных серверов (агентов внутри Docker). Первый сервер подключается автоматически при старте.
 
 ---
 
@@ -67,12 +67,12 @@
 **Groups** — конфигурированные группы топиков (из `topic_groups.yaml`):
 - Карточки групп с общим префиксом.
 - Кнопка Hz — включает мониторинг частоты публикации (shared между клиентами, без дублирования процессов).
-- Кнопка Echo — стриминг сообщений группы. Панель снизу: тема + YAML-данные, пауза, очистка.
+- Кнопка Echo — стриминг сообщений группы. Панель снизу: тема + JSON-данные, пауза, очистка.
 
 **Tree** — все топики в виде дерева по namespace:
 - Фильтр по имени или типу сообщения.
 - На каждом топике: кнопка Info (тип, publishers, subscribers), Hz (частота), Echo (стриминг).
-- Echo с фильтрацией полей — чипы для скрытия/показа отдельных полей YAML.
+- Echo с фильтрацией полей — чипы для скрытия/показа отдельных полей.
 
 ### Services
 
@@ -113,10 +113,9 @@
 
 Внутренние метрики сервера:
 
-- CPU% (сервер + подпроцессы), RSS (физическая память).
-- Количество активных docker exec, стримов, WebSocket-соединений.
-- Аптайм сервера, общее количество выполненных команд, дочерние процессы.
-- Справка с нормами для каждой метрики.
+- CPU% (сервер), RSS (физическая память).
+- Количество активных стримов, WebSocket-соединений.
+- Аптайм сервера, общее количество выполненных запросов.
 
 ### Алерты
 
@@ -135,14 +134,18 @@
 
 ---
 
-## Подключение
+## Архитектура подключения
 
-Два типа подключения к Docker-контейнеру с ROS2:
+Backend подключается к **monitoring_agent** — ROS2-ноде внутри Docker-контейнера, которая предоставляет WebSocket JSON-RPC API на порту 9090.
 
-- **Local** — `docker exec` на локальной машине.
-- **SSH** — `docker exec` через SSH-туннель (asyncssh). Поддержка ключей и пароля.
+```
+Browser ↔ FastAPI backend ↔ WebSocket JSON-RPC ↔ monitoring_agent (внутри Docker) ↔ ROS2
+```
 
-ROS2 окружение: автоматический source `/opt/ros/humble/setup.bash`, определение `ROS_DOMAIN_ID` из конфига или из аргументов запущенных процессов. Кэширование env-переменных (~1 сек вместо ~20 сек).
+Agent обеспечивает:
+- Прямой доступ к ROS2 API (rclpy) без `docker exec`
+- JSON-стриминг топиков (diagnostics, logs, echo, hz)
+- Сбор системных метрик (CPU, GPU, RAM, uptime)
 
 ---
 
@@ -162,21 +165,12 @@ cd web && npm install
 
 ### Настройка
 
-`config/servers.yaml` — серверы:
+`config/config.yaml` — серверы:
 ```yaml
 servers:
-  - id: local
-    name: "Local Docker"
-    type: local
-    container: tram_autoware
-
-  - id: remote
-    name: "Remote Tram"
-    type: ssh
-    host: 192.168.1.100
-    user: ubuntu
-    container: tram_autoware
-    ssh_key: ~/.ssh/id_rsa
+  - id: local-agent
+    name: "Local Agent"
+    agent_url: "ws://localhost:9090"
 ```
 
 `config/topic_groups.yaml` — группы топиков для мониторинга Hz и echo:
@@ -297,9 +291,9 @@ UI: http://localhost:8080
 ```
 ros2_node_manager/
 ├── server/
-│   ├── connection/          # Local Docker и SSH подключения
+│   ├── connection/          # AgentConnection (WebSocket JSON-RPC)
 │   ├── services/            # NodeService, LogCollector, DiagnosticsCollector,
-│   │                        # TopicHzMonitor, TopicEchoStreamer, AlertService,
+│   │                        # TopicHzMonitor, SharedEchoMonitor, AlertService,
 │   │                        # HistoryStore, SpeedMonitor, Metrics
 │   ├── state/               # StatePersister (JSON-состояние нод)
 │   ├── routers/             # REST и WebSocket endpoints
@@ -311,7 +305,7 @@ ros2_node_manager/
 │   ├── hooks/               # Custom hooks (данные, WebSocket)
 │   └── services/            # REST и WebSocket клиенты
 ├── config/
-│   ├── servers.yaml         # Серверы
+│   ├── config.yaml          # Серверы (agent_url)
 │   ├── topic_groups.yaml    # Группы топиков
 │   └── alerts.yaml          # Правила алертов
 ├── deploy/                  # Скрипты деплоя
@@ -323,8 +317,7 @@ ros2_node_manager/
 
 - Python 3.10+
 - Node.js 18+
-- Docker (на целевой машине)
-- SSH (для удалённых серверов)
+- monitoring_agent (ROS2 нода с WebSocket сервером на порту 9090)
 
 ## Лицензия
 

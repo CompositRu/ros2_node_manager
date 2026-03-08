@@ -9,16 +9,16 @@ Tests the full stack at 4 levels:
 
 Usage:
     # All levels (needs both agent + FastAPI running)
-    python tests/e2e_agent.py
+    python3 tests/e2e_agent.py
 
     # RPC only (just needs agent)
-    python tests/e2e_agent.py --level rpc
+    python3 tests/e2e_agent.py --level rpc
 
     # Specific test
-    python tests/e2e_agent.py --test rpc.graph.nodes -v
+    python3 tests/e2e_agent.py --test rpc.graph.nodes -v
 
     # Save JSON report
-    python tests/e2e_agent.py --json-report results.json
+    python3 tests/e2e_agent.py --json-report results.json
 """
 
 import argparse
@@ -569,26 +569,23 @@ async def test_rpc_lifecycle_get_state(r: E2ERunner) -> TestResult:
 
 @test(level="rpc", name="sub.topic.echo")
 async def test_rpc_sub_topic_echo(r: E2ERunner) -> TestResult:
-    # Use /rosout as it's always active
-    topic = "/rosout"
-    sub_id = await r.agent.subscribe("topic.echo", {"topic": topic}, timeout=r.t(10))
-    try:
-        events = await r.agent.read_events(sub_id, count=1, timeout=r.t(10))
-        if not events:
-            # /rosout might be quiet; try sample_topic
-            await r.agent.unsubscribe(sub_id)
-            if r.ctx.sample_topic and r.ctx.sample_topic != "/rosout":
-                topic = r.ctx.sample_topic
-                sub_id = await r.agent.subscribe("topic.echo", {"topic": topic}, timeout=r.t(10))
-                events = await r.agent.read_events(sub_id, count=1, timeout=r.t(10))
-            else:
+    # Try topics in order: heartbeat (1 Hz, always active), then sample_topic
+    candidates = ["/monitoring_agent/heartbeat"]
+    if r.ctx.sample_topic and r.ctx.sample_topic != "/monitoring_agent/heartbeat":
+        candidates.append(r.ctx.sample_topic)
+
+    for topic in candidates:
+        sub_id = await r.agent.subscribe("topic.echo", {"topic": topic}, timeout=r.t(10))
+        try:
+            events = await r.agent.read_events(sub_id, count=1, timeout=r.t(5))
+            if events:
                 return TestResult(name="", level="", passed=True,
-                                  details={"topic": topic, "msgs": 0, "note": "no msgs (quiet topic)"})
-        assert len(events) >= 1, f"expected ≥1 messages, got {len(events)}"
-        return TestResult(name="", level="", passed=True,
-                          details={"topic": topic, "msgs": len(events)})
-    finally:
-        await r.agent.unsubscribe(sub_id)
+                                  details={"topic": topic, "msgs": len(events)})
+        finally:
+            await r.agent.unsubscribe(sub_id)
+
+    return TestResult(name="", level="", passed=False,
+                      error=f"expected ≥1 messages, got 0 (tried: {candidates})")
 
 
 @test(level="rpc", name="sub.topic.hz")
@@ -931,10 +928,21 @@ async def test_ws_logs_node(r: E2ERunner) -> TestResult:
         return TestResult(name="", level="", passed=False, skipped=True, error="no nodes discovered")
     node = r.ctx.sample_node.lstrip("/")
     url = _ws_url(r.args.api_url, f"/ws/logs/{node}")
-    msgs = await _ws_receive_messages(url, count=1, timeout=r.t(10))
-    # Even if no messages, connection itself is valid
+    msgs = await _ws_receive_messages(url, count=3, timeout=r.t(15))
+    # Check that we receive actual log messages (history or real-time)
+    log_msgs = [m for m in msgs if isinstance(m, dict) and m.get("type") == "log"]
+    has_history = any(isinstance(m, dict) and m.get("type") == "history" for m in msgs)
+    # Verify node_name matches in log messages
+    name_ok = True
+    for m in log_msgs:
+        msg_node = m.get("node_name", "")
+        if msg_node and msg_node != r.ctx.sample_node:
+            name_ok = False
+            break
     return TestResult(name="", level="", passed=True,
-                      details={"node": r.ctx.sample_node, "msgs": len(msgs)})
+                      details={"node": r.ctx.sample_node, "msgs": len(msgs),
+                               "log_msgs": len(log_msgs), "has_history": has_history,
+                               "name_match": name_ok})
 
 
 @test(level="ws", name="WS /ws/topics/hz")

@@ -188,6 +188,11 @@ class LogCollector:
             level_int = data.get('level', 20)
             level = self._level_map.get(level_int, "INFO")
             node_name = data.get('node', '')
+            # ROS2 logger names use dots (e.g. "sensing.lidar.front.convert_filter")
+            # but node names from graph API use slashes ("/sensing/lidar/front/convert_filter").
+            # Normalize to slash format for consistent matching.
+            if node_name and '/' not in node_name:
+                node_name = '/' + node_name.replace('.', '/')
             message = data.get('message', '')
 
             if not node_name:
