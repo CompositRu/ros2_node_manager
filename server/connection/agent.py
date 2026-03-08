@@ -2,8 +2,8 @@
 
 Replaces docker exec calls with JSON-RPC 2.0 over WebSocket.
 All ros2_* methods are overridden to use direct agent API calls.
-exec_stream is translated from ROS2 CLI commands to agent subscriptions,
-producing YAML-compatible output for backward compatibility with services.
+Services use subscribe_json() for native JSON streaming (logs, diagnostics, echo).
+exec_stream handles only topic.hz for backward compatibility.
 """
 
 import asyncio
@@ -12,7 +12,10 @@ import logging
 import re
 import time
 import uuid
-from typing import AsyncIterator, Optional
+from typing import TYPE_CHECKING, AsyncIterator, Optional
+
+if TYPE_CHECKING:
+    from ..services.droppable_queue import DroppableQueue
 
 import websockets
 from websockets.client import WebSocketClientProtocol
@@ -22,6 +25,16 @@ from .base import BaseConnection, ConnectionError, ContainerNotFoundError
 logger = logging.getLogger(__name__)
 
 _JSONRPC = "2.0"
+
+# Channel-dependent queue sizes: critical channels get larger buffers,
+# high-frequency data channels get smaller buffers (drops acceptable).
+_CHANNEL_QUEUE_SIZES = {
+    'logs': 2000,           # critical — large buffer to avoid losing log entries
+    'diagnostics': 1000,    # critical — large buffer for diagnostic data
+    'mrm_state': 500,       # critical — safety state must not be lost
+    'topic.echo': 200,      # data-heavy, high-frequency — smaller buffer, drops OK
+    'topic.hz': 100,        # low traffic, periodic stats
+}
 
 
 class AgentConnection(BaseConnection):
@@ -36,7 +49,7 @@ class AgentConnection(BaseConnection):
         self._ws: Optional[WebSocketClientProtocol] = None
         self._request_id = 0
         self._pending: dict[int, asyncio.Future] = {}
-        self._subscription_queues: dict[str, asyncio.Queue] = {}
+        self._subscription_queues: dict[str, DroppableQueue] = {}
         self._reader_task: Optional[asyncio.Task] = None
         self._reconnect_delay = 1.0
 
@@ -84,7 +97,7 @@ class AgentConnection(BaseConnection):
 
         self._request_id += 1
         req_id = self._request_id
-        future = asyncio.get_event_loop().create_future()
+        future = asyncio.get_running_loop().create_future()
         self._pending[req_id] = future
 
         msg = json.dumps({
@@ -107,13 +120,20 @@ class AgentConnection(BaseConnection):
             raise ConnectionError('Agent connection lost')
 
     async def _subscribe(self, channel: str, params: dict = None) -> str:
-        """Subscribe to a data channel. Returns subscription ID."""
+        """Subscribe to a data channel. Returns subscription ID.
+
+        Queue size depends on channel type: critical channels (logs, diagnostics)
+        get larger buffers, data-heavy channels (echo) get smaller ones to allow
+        controlled drops without blocking critical data delivery.
+        """
         result = await self._call('subscribe', {
             'channel': channel,
             'params': params or {},
         })
+        from ..services.droppable_queue import DroppableQueue
         sub_id = result['subscription']
-        self._subscription_queues[sub_id] = asyncio.Queue(maxsize=500)
+        maxsize = _CHANNEL_QUEUE_SIZES.get(channel, 500)
+        self._subscription_queues[sub_id] = DroppableQueue(maxsize=maxsize)
         return sub_id
 
     async def _unsubscribe(self, sub_id: str) -> None:
@@ -157,10 +177,7 @@ class AgentConnection(BaseConnection):
                         sub_id = params.get('subscription', '')
                         queue = self._subscription_queues.get(sub_id)
                         if queue:
-                            try:
-                                queue.put_nowait(params.get('data'))
-                            except asyncio.QueueFull:
-                                pass  # Drop oldest if full
+                            queue.put_nowait(params.get('data'))  # DroppableQueue tracks drops
 
             except asyncio.CancelledError:
                 return
@@ -208,11 +225,43 @@ class AgentConnection(BaseConnection):
         cmd = cmd.strip()
         return await self._translate_command(cmd, timeout)
 
+    async def subscribe_json(self, channel: str, params: dict = None) -> AsyncIterator[dict]:
+        """Subscribe to an agent channel and yield raw JSON data.
+
+        Unlike exec_stream which converts JSON→YAML for backward compatibility,
+        this method yields the raw dict data from the agent directly.
+        Used by services that can handle JSON natively (LogCollector, DiagnosticsCollector, echo).
+        """
+        if not self._connected:
+            raise ConnectionError('Not connected')
+
+        sub_id = None
+        try:
+            sub_id = await self._subscribe(channel, params or {})
+            queue = self._subscription_queues.get(sub_id)
+
+            while self._connected:
+                try:
+                    data = await asyncio.wait_for(queue.get(), timeout=60.0)
+                except asyncio.TimeoutError:
+                    continue
+                if data is not None:
+                    yield data
+        except asyncio.CancelledError:
+            raise
+        except ConnectionError:
+            raise
+        except Exception as e:
+            logger.error(f'subscribe_json error ({channel}): {e}')
+        finally:
+            if sub_id:
+                await self._unsubscribe(sub_id)
+
     async def exec_stream(self, cmd: str) -> AsyncIterator[str]:
         """Translate a streaming ROS2 CLI command to agent subscription.
 
-        Converts agent JSON events back to YAML-formatted lines for
-        backward compatibility with existing service parsers.
+        Currently only handles 'ros2 topic hz' commands. Other streaming
+        data (logs, diagnostics, echo) uses subscribe_json() directly.
         """
         if not self._connected:
             raise ConnectionError('Not connected')
@@ -222,8 +271,6 @@ class AgentConnection(BaseConnection):
         try:
             # Parse the command to determine subscription type
             channel, params = self._parse_stream_command(cmd)
-            # Extract local-only options before sending to agent
-            field_path = params.pop('_field_path', None)
             sub_id = await self._subscribe(channel, params)
             queue = self._subscription_queues.get(sub_id)
 
@@ -234,36 +281,10 @@ class AgentConnection(BaseConnection):
                     continue
 
                 # Convert agent JSON data to YAML lines for backward compat
-                if channel == 'topic.echo':
-                    msg_data = data.get('data', {})
-                    # Apply --field extraction (e.g. twist.twist.linear)
-                    if field_path:
-                        for part in field_path.split('.'):
-                            if isinstance(msg_data, dict):
-                                msg_data = msg_data.get(part, {})
-                            else:
-                                msg_data = {}
-                                break
-                    for line in self._json_to_yaml_lines(msg_data):
-                        yield line
-                    yield '---'
-                elif channel == 'topic.hz':
+                if channel == 'topic.hz':
                     hz = data.get('hz', 0.0)
                     if hz > 0:
                         yield f'average rate: {hz:.3f}'
-                elif channel == 'logs':
-                    for line in self._log_event_to_yaml(data):
-                        yield line
-                    yield '---'
-                elif channel == 'diagnostics':
-                    for line in self._diag_event_to_yaml(data):
-                        yield line
-                    yield '---'
-                elif channel == 'mrm_state':
-                    msg_data = data.get('data', {})
-                    for line in self._json_to_yaml_lines(msg_data):
-                        yield line
-                    yield '---'
         except asyncio.CancelledError:
             raise
         except ConnectionError:
@@ -451,26 +472,6 @@ class AgentConnection(BaseConnection):
 
     def _parse_stream_command(self, cmd: str) -> tuple[str, dict]:
         """Parse a ros2 streaming command into (channel, params)."""
-        # ros2 topic echo {topic} [options]
-        m = re.match(r'ros2 topic echo\s+(\S+)', cmd)
-        if m:
-            topic = m.group(1)
-            # Route well-known topics to dedicated agent channels
-            if topic == '/diagnostics':
-                return 'diagnostics', {}
-            if topic == '/rosout':
-                return 'logs', {}
-            if topic == '/api/fail_safe/mrm_state':
-                return 'mrm_state', {}
-            no_arr = '--no-arr' in cmd
-            # Extract --field option (e.g. --field twist.twist.linear)
-            field_match = re.search(r'--field\s+(\S+)', cmd)
-            field_path = field_match.group(1) if field_match else None
-            return 'topic.echo', {
-                'topic': topic, 'no_arr': no_arr,
-                '_field_path': field_path,  # local-only, not sent to agent
-            }
-
         # ros2 topic hz {topic}
         m = re.match(r'ros2 topic hz\s+(\S+)', cmd)
         if m:
@@ -520,39 +521,6 @@ class AgentConnection(BaseConnection):
                         lines.append(f'{leader} {v}')
             else:
                 lines.append(f'{prefix}- {item}')
-        return lines
-
-    @staticmethod
-    def _log_event_to_yaml(data: dict) -> list[str]:
-        """Convert log event to YAML format matching ros2 topic echo /rosout."""
-        ts = data.get('timestamp', 0)
-        sec = int(ts)
-        nanosec = int((ts - sec) * 1e9)
-        level = data.get('level', 0)
-        node = data.get('node', '')
-        msg = data.get('message', '')
-        return [
-            'stamp:',
-            f'  sec: {sec}',
-            f'  nanosec: {nanosec}',
-            f'level: {level}',
-            f'name: {node}',
-            f'msg: {msg}',
-        ]
-
-    @staticmethod
-    def _diag_event_to_yaml(data: dict) -> list[str]:
-        """Convert diagnostics event to YAML format."""
-        lines = ['status:']
-        for s in data.get('statuses', []):
-            lines.append(f'- name: "{s.get("name", "")}"')
-            lines.append(f'  level: {s.get("level", 0)}')
-            lines.append(f'  message: "{s.get("message", "")}"')
-            lines.append(f'  hardware_id: "{s.get("hardware_id", "")}"')
-            lines.append('  values:')
-            for kv in s.get('values', []):
-                lines.append(f'  - key: "{kv.get("key", "")}"')
-                lines.append(f'    value: "{kv.get("value", "")}"')
         return lines
 
     @staticmethod

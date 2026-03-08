@@ -9,8 +9,13 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 logger = logging.getLogger(__name__)
 
 from ..models import NodeStatus
-from ..services import stream_diagnostics, stream_bool_topic, stream_mrm_status, stream_mrm_state, stream_group_echo
+from ..services import (
+    stream_diagnostics, stream_bool_topic, stream_mrm_status, stream_mrm_state,
+    stream_diagnostics_json, stream_bool_topic_json, stream_mrm_status_json, stream_mrm_state_json,
+    stream_group_echo,
+)
 from ..services.metrics import metrics
+from ..services.droppable_queue import DroppableQueue
 from ..connection import ContainerNotFoundError, ConnectionError as ConnError
 from ..config import load_topic_groups_config
 
@@ -115,25 +120,27 @@ async def diagnostics_websocket(websocket: WebSocket):
             "message": "Streaming diagnostics"
         })
 
-        lock = asyncio.Lock()
         conn = app_state.connection
 
+        # Detect agent mode for JSON-native streaming
+        from ..connection.agent import AgentConnection
+        is_agent = isinstance(conn, AgentConnection)
+
         async def _send_items(items):
-            async with lock:
-                await websocket.send_json({
-                    "type": "diagnostics",
-                    "items": [
-                        {
-                            "name": item.name,
-                            "level": item.level,
-                            "message": item.message,
-                            "hardware_id": item.hardware_id,
-                            "values": item.values,
-                            "timestamp": item.timestamp.isoformat(),
-                        }
-                        for item in items
-                    ],
-                })
+            await websocket.send_json({
+                "type": "diagnostics",
+                "items": [
+                    {
+                        "name": item.name,
+                        "level": item.level,
+                        "message": item.message,
+                        "hardware_id": item.hardware_id,
+                        "values": item.values,
+                        "timestamp": item.timestamp.isoformat(),
+                    }
+                    for item in items
+                ],
+            })
 
         async def run_with_retry(name, coro_factory, retry_delay=5):
             """Run a stream coroutine with automatic retry on failure."""
@@ -150,31 +157,63 @@ async def diagnostics_websocket(websocket: WebSocket):
                     logger.warning(f"[diag] Stream error in {name}: {e}, retrying in {retry_delay}s")
                 await asyncio.sleep(retry_delay)
 
-        tasks = [
-            asyncio.create_task(run_with_retry(
-                "/diagnostics",
-                lambda: stream_diagnostics(conn),
-            )),
-            asyncio.create_task(run_with_retry(
-                "lidar_sync_flag",
-                lambda: stream_bool_topic(
-                    conn,
-                    "/sensing/lidar/concatenated/lidar_sync_checker/lidar_sync_flag",
+        if is_agent:
+            tasks = [
+                asyncio.create_task(run_with_retry(
+                    "/diagnostics",
+                    lambda: stream_diagnostics_json(conn),
+                )),
+                asyncio.create_task(run_with_retry(
                     "lidar_sync_flag",
-                ),
-            )),
-            asyncio.create_task(run_with_retry(
-                "mrm_status",
-                lambda: stream_mrm_status(conn),
-            )),
-            asyncio.create_task(run_with_retry(
-                "mrm_state",
-                lambda: stream_mrm_state(conn),
-            )),
-        ]
+                    lambda: stream_bool_topic_json(
+                        conn,
+                        "/sensing/lidar/concatenated/lidar_sync_checker/lidar_sync_flag",
+                        "lidar_sync_flag",
+                    ),
+                )),
+                asyncio.create_task(run_with_retry(
+                    "mrm_status",
+                    lambda: stream_mrm_status_json(conn),
+                )),
+                asyncio.create_task(run_with_retry(
+                    "mrm_state",
+                    lambda: stream_mrm_state_json(conn),
+                )),
+            ]
+        else:
+            tasks = [
+                asyncio.create_task(run_with_retry(
+                    "/diagnostics",
+                    lambda: stream_diagnostics(conn),
+                )),
+                asyncio.create_task(run_with_retry(
+                    "lidar_sync_flag",
+                    lambda: stream_bool_topic(
+                        conn,
+                        "/sensing/lidar/concatenated/lidar_sync_checker/lidar_sync_flag",
+                        "lidar_sync_flag",
+                    ),
+                )),
+                asyncio.create_task(run_with_retry(
+                    "mrm_status",
+                    lambda: stream_mrm_status(conn),
+                )),
+                asyncio.create_task(run_with_retry(
+                    "mrm_state",
+                    lambda: stream_mrm_state(conn),
+                )),
+            ]
 
-        # Wait until WebSocket disconnects (tasks cancelled in finally)
-        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+        # Sentinel: wait for client disconnect
+        async def _wait_disconnect():
+            try:
+                while True:
+                    await websocket.receive_text()
+            except WebSocketDisconnect:
+                pass
+
+        tasks.append(asyncio.create_task(_wait_disconnect()))
+        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
     except WebSocketDisconnect:
         pass
@@ -209,7 +248,7 @@ async def all_logs_websocket(websocket: WebSocket):
         metrics.ws_disconnect("log_all")
         return
 
-    queue = asyncio.Queue(maxsize=1000)
+    queue = DroppableQueue(maxsize=1000)
     app_state.log_collector.subscribe_all(queue)
 
     try:
@@ -236,6 +275,10 @@ async def all_logs_websocket(websocket: WebSocket):
 
         while True:
             log_msg = await queue.get()
+            # LogMessage is not a dict, so _dropped won't be attached — use reset_dropped()
+            dropped = queue.reset_dropped()
+            if dropped:
+                await websocket.send_json({"type": "dropped", "count": dropped})
             await websocket.send_json({
                 "type": "log",
                 "timestamp": log_msg.timestamp.isoformat(),
@@ -279,7 +322,7 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
         metrics.ws_disconnect("log")
         return
 
-    queue = asyncio.Queue(maxsize=1000)
+    queue = DroppableQueue(maxsize=1000)
     app_state.log_collector.subscribe(node_name, queue)
 
     try:
@@ -307,6 +350,10 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
 
         while True:
             log_msg = await queue.get()
+            # LogMessage is not a dict, so _dropped won't be attached — use reset_dropped()
+            dropped = queue.reset_dropped()
+            if dropped:
+                await websocket.send_json({"type": "dropped", "count": dropped})
             await websocket.send_json({
                 "type": "log",
                 "timestamp": log_msg.timestamp.isoformat(),
@@ -450,7 +497,7 @@ async def topic_hz_websocket(websocket: WebSocket):
 async def topic_echo_single_websocket(websocket: WebSocket, topic: str):
     """WebSocket for streaming echo of a single topic.
 
-    Reuses stream_group_echo with a single-element topic list.
+    Uses SharedEchoMonitor for shared subscription across clients.
     """
     from ..main import app_state
 
@@ -466,6 +513,8 @@ async def topic_echo_single_websocket(websocket: WebSocket, topic: str):
         metrics.ws_disconnect("topic_echo")
         return
 
+    queue = DroppableQueue(maxsize=200)
+    app_state.shared_echo_monitor.subscribe([topic], queue)
     try:
         await websocket.send_json({
             "type": "connected",
@@ -473,7 +522,11 @@ async def topic_echo_single_websocket(websocket: WebSocket, topic: str):
             "topic": topic,
         })
 
-        async for msg in stream_group_echo(app_state.connection, [topic]):
+        while True:
+            msg = await queue.get()
+            dropped = msg.pop("_dropped", 0) if isinstance(msg, dict) else 0
+            if dropped:
+                await websocket.send_json({"type": "dropped", "count": dropped})
             await websocket.send_json({"type": "echo", **msg})
 
     except WebSocketDisconnect:
@@ -485,6 +538,7 @@ async def topic_echo_single_websocket(websocket: WebSocket, topic: str):
         except:
             pass
     finally:
+        app_state.shared_echo_monitor.unsubscribe(queue)
         metrics.ws_disconnect("topic_echo")
 
 
@@ -546,8 +600,7 @@ async def topic_hz_single_websocket(websocket: WebSocket, topic: str):
 async def topic_echo_websocket(websocket: WebSocket, group_id: str):
     """WebSocket for streaming echo of all topics in a group.
 
-    Per-client: starts ros2 topic echo for each topic, multiplexes output.
-    Processes are killed when client disconnects.
+    Shared: uses SharedEchoMonitor so multiple clients reuse the same streams.
     """
     from ..main import app_state
 
@@ -580,6 +633,8 @@ async def topic_echo_websocket(websocket: WebSocket, group_id: str):
         metrics.ws_disconnect("topic_echo")
         return
 
+    queue = DroppableQueue(maxsize=200)
+    app_state.shared_echo_monitor.subscribe(group.topics, queue)
     try:
         await websocket.send_json({
             "type": "connected",
@@ -588,7 +643,11 @@ async def topic_echo_websocket(websocket: WebSocket, group_id: str):
             "topics": group.topics,
         })
 
-        async for msg in stream_group_echo(app_state.connection, group.topics):
+        while True:
+            msg = await queue.get()
+            dropped = msg.pop("_dropped", 0) if isinstance(msg, dict) else 0
+            if dropped:
+                await websocket.send_json({"type": "dropped", "count": dropped})
             await websocket.send_json({
                 "type": "echo",
                 **msg,
@@ -603,4 +662,5 @@ async def topic_echo_websocket(websocket: WebSocket, group_id: str):
         except:
             pass
     finally:
+        app_state.shared_echo_monitor.unsubscribe(queue)
         metrics.ws_disconnect("topic_echo")

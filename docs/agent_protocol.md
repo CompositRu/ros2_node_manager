@@ -400,3 +400,36 @@ Server responds:
 ```json
 {"jsonrpc": "2.0", "result": {"uptime": 3600, "subscriptions": 3, "clients": 1}, "id": 99}
 ```
+
+---
+
+## Event Priority
+
+All subscription events share a single WebSocket connection between the agent and each backend client. When high-frequency channels (e.g., `topic.echo` at 30+ Hz) produce heavy traffic, they can delay delivery of critical events like logs and diagnostics.
+
+### Agent-side prioritization
+
+The agent uses a per-client priority queue for event delivery. Each channel has a priority level (lower = sent first):
+
+| Priority | Channels | Rationale |
+|----------|----------|-----------|
+| 0 (highest) | `logs`, `diagnostics`, `mrm_state` | Safety-critical monitoring data |
+| 1 | `topic.hz` | Low-frequency periodic stats |
+| 2 (lowest) | `topic.echo` | High-frequency, tolerates delay |
+
+Events with the same priority are delivered in FIFO order. When the per-client queue overflows (default: 5000 messages), the lowest-priority messages are dropped first implicitly (new messages are dropped on overflow since higher-priority messages drain faster).
+
+### Backend-side queue sizing
+
+The backend (`AgentConnection`) uses channel-dependent queue sizes to complement the agent-side prioritization:
+
+| Channel | Queue size | Rationale |
+|---------|------------|-----------|
+| `logs` | 2000 | Large buffer — log entries must not be lost |
+| `diagnostics` | 1000 | Large buffer — diagnostic data is critical |
+| `mrm_state` | 500 | Medium buffer — safety state updates |
+| `topic.echo` | 200 | Small buffer — high-frequency, drops acceptable |
+| `topic.hz` | 100 | Small buffer — low traffic, periodic stats |
+| (default) | 500 | Fallback for unknown channels |
+
+When a backend queue is full, new messages are dropped silently (`QueueFull` exception is caught). This ensures that high-frequency echo data does not consume unbounded memory while critical channels retain sufficient buffer capacity.

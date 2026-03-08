@@ -9,6 +9,7 @@ from typing import Optional, Callable
 
 from ..connection import BaseConnection, ConnectionError
 from ..models import LogMessage
+from .droppable_queue import DroppableQueue
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +30,9 @@ class LogCollector:
         self._task: Optional[asyncio.Task] = None
 
         # Queue-based subscribers (for WebSocket clients)
-        self._subscribers: dict[str, set[asyncio.Queue]] = defaultdict(set)
-        self._all_subscribers: set[asyncio.Queue] = set()
+        # Accept both asyncio.Queue and DroppableQueue
+        self._subscribers: dict[str, set] = defaultdict(set)
+        self._all_subscribers: set = set()
 
         # Callback subscribers (for HistoryStore, AlertService)
         self._callbacks: list[Callable[[LogMessage], None]] = []
@@ -141,6 +143,11 @@ class LogCollector:
 
     async def _collect_loop(self) -> None:
         """Main loop: always streams /rosout, dispatches to all consumers."""
+        # In agent mode, use direct JSON subscription (no YAML round-trip)
+        from ..connection.agent import AgentConnection
+        if isinstance(self.conn, AgentConnection):
+            return await self._collect_loop_json()
+
         cmd = "ros2 topic echo /rosout --no-arr --qos-reliability best_effort --qos-history keep_last --qos-depth 1000"
 
         while self._running:
@@ -178,6 +185,67 @@ class LogCollector:
                 if self._running:
                     await asyncio.sleep(5)
 
+    async def _collect_loop_json(self) -> None:
+        """Agent mode: subscribe to JSON log stream directly, skip YAML."""
+        while self._running:
+            try:
+                logger.info("Starting /rosout JSON stream (agent mode)...")
+                msg_count = 0
+                async for data in self.conn.subscribe_json('logs'):
+                    if not self._running:
+                        break
+
+                    msg = self._parse_json_log(data)
+                    if msg:
+                        msg_count += 1
+                        if msg_count <= 3:
+                            logger.debug(f"[logs] Message #{msg_count}: [{msg.level}] {msg.node_name}: {msg.message[:80]}")
+                        elif msg_count == 4:
+                            logger.debug("[logs] Stream working, suppressing further debug output")
+                        self._dispatch(msg)
+
+                logger.info(f"/rosout JSON stream ended after {msg_count} messages, retrying in 5s...")
+
+            except ConnectionError as e:
+                logger.warning(f"Connection error: {e}")
+                if self._running:
+                    await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in JSON log stream: {e}")
+                if self._running:
+                    await asyncio.sleep(5)
+
+    def _parse_json_log(self, data: dict) -> Optional[LogMessage]:
+        """Convert agent JSON log dict directly to LogMessage."""
+        try:
+            ts = data.get('timestamp', 0)
+            if isinstance(ts, dict):
+                sec = ts.get('sec', 0)
+                nanosec = ts.get('nanosec', 0)
+            else:
+                sec = int(ts)
+                nanosec = int((ts - sec) * 1e9) if isinstance(ts, float) else 0
+            timestamp = datetime.fromtimestamp(sec + nanosec / 1e9)
+
+            level_int = data.get('level', 20)
+            level = self._level_map.get(level_int, "INFO")
+            node_name = data.get('node', '')
+            message = data.get('message', '')
+
+            if not node_name:
+                return None
+
+            return LogMessage(
+                timestamp=timestamp,
+                level=level,
+                node_name=node_name,
+                message=message,
+            )
+        except Exception:
+            return None
+
     # ─────────────────────────────────────────────────────────────────
     # Dispatch
     # ─────────────────────────────────────────────────────────────────
@@ -195,6 +263,7 @@ class LogCollector:
                 logger.error(f"Log callback error: {e}")
 
         # 2. All-subscribers (WebSocket /ws/logs/all)
+        #    DroppableQueue.put_nowait tracks drops; plain Queue drops silently.
         for queue in self._all_subscribers:
             try:
                 queue.put_nowait(msg)

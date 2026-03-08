@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { getTopicList, getTopicInfo } from '../services/api';
 import { createSingleTopicEchoSocket, createSingleTopicHzSocket } from '../services/websocket';
+import { JsonView, extractJsonTopLevelKeys, filterJsonFields } from './JsonView';
 
 const MAX_ECHO_MESSAGES = 500;
 
@@ -222,11 +223,15 @@ function EchoPanel({ topicName, messages, paused, onTogglePause, onClear, onClos
   const startHeightRef = useRef(0);
   const [activeFields, setActiveFields] = useState(new Set()); // empty = show all
 
-  // Extract available fields from the first message
+  // Extract available fields from the first message (supports both YAML and JSON)
+  const firstMsg = messages.length > 0 ? messages[0] : null;
   const availableFields = useMemo(() => {
-    if (messages.length === 0) return [];
-    return extractYamlTopLevelKeys(messages[0].data);
-  }, [messages.length > 0 ? messages[0].data : '']);
+    if (!firstMsg) return [];
+    if (firstMsg.format === 'json') {
+      return extractJsonTopLevelKeys(firstMsg.data);
+    }
+    return extractYamlTopLevelKeys(firstMsg.data);
+  }, [firstMsg ? (firstMsg.format === 'json' ? JSON.stringify(Object.keys(firstMsg.data || {})) : firstMsg.data) : '']);
 
   const toggleField = useCallback((field) => {
     setActiveFields(prev => {
@@ -348,6 +353,23 @@ function EchoPanel({ topicName, messages, paused, onTogglePause, onClear, onClos
           <div className="text-gray-500 text-center py-8">Waiting for messages...</div>
         )}
         {messages.map((msg, idx) => {
+          const isJson = msg.format === 'json';
+          if (isJson) {
+            const displayData = activeFields.size > 0
+              ? filterJsonFields(msg.data, activeFields)
+              : msg.data;
+            if (activeFields.size > 0 && Object.keys(displayData).length === 0) return null;
+            return (
+              <div key={idx} className="mb-2">
+                <div className="text-gray-300 leading-tight">
+                  <JsonView data={displayData} />
+                </div>
+                {idx < messages.length - 1 && (
+                  <div className="text-gray-600 mt-0.5">---</div>
+                )}
+              </div>
+            );
+          }
           const displayData = activeFields.size > 0
             ? filterYamlFields(msg.data, activeFields)
             : msg.data;

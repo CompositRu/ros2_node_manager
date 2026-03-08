@@ -3,6 +3,7 @@ import { useTopicGroups } from '../hooks/useTopicGroups';
 import { useTopicEcho } from '../hooks/useTopicEcho';
 import { toggleGroupHz } from '../services/api';
 import { TopicTree } from './TopicTree';
+import { JsonView } from './JsonView';
 
 function HzBadge({ hz }) {
   if (hz === null || hz === undefined) {
@@ -190,7 +191,13 @@ function EchoPanel({ groupName, messages, paused, onTogglePause, onClear, onClos
             <div className="text-cyan-400 text-[10px] mb-0.5">
               [{msg.topic}]
             </div>
-            <pre className="text-gray-300 whitespace-pre-wrap leading-tight">{msg.data}</pre>
+            {msg.format === 'json' ? (
+              <div className="text-gray-300 leading-tight">
+                <JsonView data={msg.data} />
+              </div>
+            ) : (
+              <pre className="text-gray-300 whitespace-pre-wrap leading-tight">{msg.data}</pre>
+            )}
             {idx < messages.length - 1 && (
               <div className="text-gray-600 mt-0.5">---</div>
             )}

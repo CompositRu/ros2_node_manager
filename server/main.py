@@ -49,7 +49,7 @@ from .state import StatePersister
 # from .services import NodeServicee
 from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router, history_router, dashboard_router, services_router
 from .config import settings, load_servers_config, get_server_by_id, load_alert_config, load_topic_groups_config
-from .services import NodeService, AlertService, TopicHzMonitor, HistoryStore, LogCollector
+from .services import NodeService, AlertService, TopicHzMonitor, SharedEchoMonitor, HistoryStore, LogCollector
 from fastapi.responses import FileResponse, JSONResponse
 
 
@@ -62,6 +62,7 @@ class AppState:
     persister: Optional[StatePersister] = None
     alert_service: Optional[AlertService] = None
     topic_hz_monitor: Optional[TopicHzMonitor] = None
+    shared_echo_monitor: Optional[SharedEchoMonitor] = None
     history_store: Optional[HistoryStore] = None
     log_collector: Optional[LogCollector] = None
     is_shutting_down: bool = False
@@ -89,6 +90,9 @@ async def connect_to_server(
     if app_state.topic_hz_monitor:
         await app_state.topic_hz_monitor.stop()
         app_state.topic_hz_monitor = None
+    if app_state.shared_echo_monitor:
+        await app_state.shared_echo_monitor.stop()
+        app_state.shared_echo_monitor = None
     if app_state.alert_service:
         await app_state.alert_service.stop()
         app_state.alert_service = None
@@ -136,6 +140,9 @@ async def connect_to_server(
     topic_groups_config = load_topic_groups_config()
     topic_hz_monitor = TopicHzMonitor(connection, topic_groups_config.topic_groups)
 
+    # Initialize shared echo monitor (one subscription per topic, fan-out to all clients)
+    shared_echo_monitor = SharedEchoMonitor(connection)
+
     # Initialize history store (persistent log/alert storage)
     history_store = HistoryStore(server.id, settings.data_dir)
     await history_store.initialize()
@@ -154,6 +161,7 @@ async def connect_to_server(
     app_state.node_service = node_service
     app_state.alert_service = alert_service
     app_state.topic_hz_monitor = topic_hz_monitor
+    app_state.shared_echo_monitor = shared_echo_monitor
     app_state.history_store = history_store
     app_state.log_collector = log_collector
 
@@ -176,6 +184,11 @@ async def disconnect_server() -> None:
     if app_state.topic_hz_monitor:
         await app_state.topic_hz_monitor.stop()
         app_state.topic_hz_monitor = None
+
+    # Stop shared echo monitor
+    if app_state.shared_echo_monitor:
+        await app_state.shared_echo_monitor.stop()
+        app_state.shared_echo_monitor = None
 
     # Stop alert service
     if app_state.alert_service:
@@ -289,6 +302,8 @@ async def _shutdown_services() -> None:
         tasks.append(app_state.log_collector.stop())
     if app_state.topic_hz_monitor:
         tasks.append(app_state.topic_hz_monitor.stop())
+    if app_state.shared_echo_monitor:
+        tasks.append(app_state.shared_echo_monitor.stop())
     if app_state.alert_service:
         tasks.append(app_state.alert_service.stop())
     if app_state.history_store:
