@@ -57,9 +57,9 @@ const MRM_COLORS = {
   OPERATING:     { text: 'text-orange-400', dot: 'bg-orange-400', bg: 'bg-orange-900/30 border-orange-700/50' },
   SUCCEEDED:     { text: 'text-green-400',  dot: 'bg-green-400',  bg: 'bg-green-900/30 border-green-700/50' },
   FAILED:        { text: 'text-red-400',    dot: 'bg-red-400',    bg: 'bg-red-900/30 border-red-700/50' },
-  MRM_OPERATING: { text: 'text-orange-400', dot: 'bg-orange-400', bg: 'bg-orange-900/30 border-orange-700/50' },
-  MRM_SUCCEEDED: { text: 'text-green-400',  dot: 'bg-green-400',  bg: 'bg-green-900/30 border-green-700/50' },
-  MRM_FAILED:    { text: 'text-red-400',    dot: 'bg-red-400',    bg: 'bg-red-900/30 border-red-700/50' },
+  MRM_OPERATING: { text: 'text-red-400', dot: 'bg-red-400', bg: 'bg-red-900/30 border-red-700/50' },
+  MRM_SUCCEEDED: { text: 'text-red-400', dot: 'bg-red-400', bg: 'bg-red-900/30 border-red-700/50' },
+  MRM_FAILED:    { text: 'text-red-400', dot: 'bg-red-400', bg: 'bg-red-900/30 border-red-700/50' },
 };
 const MRM_DEFAULT_COLORS = MRM_COLORS.ERROR;
 
@@ -643,7 +643,7 @@ export function Diagnostics({ connected }) {
 
         {/* Pinned section: localization + bag recorder / lidar sync / MRM */}
         {(localization.length > 0 || pinned.length > 0) && (
-          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 mb-8">
             {localization.map((item) => (
               <LocalizationCard
                 key={item.name}

@@ -59,10 +59,10 @@ function StatusBanner({ status }) {
 }
 
 const MRM_STATE_STYLES = {
-  NORMAL:        { bg: 'bg-green-900/30',  border: 'border-green-600/50',  text: 'text-green-400',  dot: 'bg-green-400' },
-  MRM_OPERATING: { bg: 'bg-orange-900/30', border: 'border-orange-600/50', text: 'text-orange-400', dot: 'bg-orange-400' },
-  MRM_SUCCEEDED: { bg: 'bg-green-900/30',  border: 'border-green-600/50',  text: 'text-green-400',  dot: 'bg-green-400' },
-  MRM_FAILED:    { bg: 'bg-red-900/30',    border: 'border-red-600/50',    text: 'text-red-400',    dot: 'bg-red-400' },
+  NORMAL:        { bg: 'bg-green-900/30', border: 'border-green-600/50', text: 'text-green-400', dot: 'bg-green-400' },
+  MRM_OPERATING: { bg: 'bg-red-900/30',   border: 'border-red-600/50',   text: 'text-red-400',   dot: 'bg-red-400' },
+  MRM_SUCCEEDED: { bg: 'bg-red-900/30',   border: 'border-red-600/50',   text: 'text-red-400',   dot: 'bg-red-400' },
+  MRM_FAILED:    { bg: 'bg-red-900/30',   border: 'border-red-600/50',   text: 'text-red-400',   dot: 'bg-red-400' },
 };
 
 const MRM_STATE_LABELS = {
