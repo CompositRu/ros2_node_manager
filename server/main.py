@@ -17,14 +17,14 @@ from fastapi.responses import FileResponse
 # --- File logging setup (overwritten on each restart) ---
 _LOG_DIR = Path(__file__).parent.parent / "logs"
 _LOG_DIR.mkdir(exist_ok=True)
-_LOG_FILE = _LOG_DIR / "app.log"
 
 _log_formatter = logging.Formatter(
     "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-_file_handler = logging.FileHandler(_LOG_FILE, mode="w", encoding="utf-8")
+# Main app log
+_file_handler = logging.FileHandler(_LOG_DIR / "app.log", mode="w", encoding="utf-8")
 _file_handler.setLevel(logging.DEBUG)
 _file_handler.setFormatter(_log_formatter)
 
@@ -36,6 +36,21 @@ logging.root.addHandler(_file_handler)
 logging.root.addHandler(_console_handler)
 logging.root.setLevel(logging.INFO)
 
+# Agent connection log — separate file, no console
+_agent_handler = logging.FileHandler(_LOG_DIR / "agent.log", mode="w", encoding="utf-8")
+_agent_handler.setLevel(logging.DEBUG)
+_agent_handler.setFormatter(_log_formatter)
+_agent_logger = logging.getLogger("server.connection.agent")
+_agent_logger.addHandler(_agent_handler)
+_agent_logger.propagate = False  # don't duplicate into app.log
+
+# Metrics log — separate file for observability data
+_metrics_handler = logging.FileHandler(_LOG_DIR / "metrics.log", mode="w", encoding="utf-8")
+_metrics_handler.setLevel(logging.DEBUG)
+_metrics_handler.setFormatter(_log_formatter)
+_metrics_logger = logging.getLogger("server.services.metrics_logger")
+_metrics_logger.addHandler(_metrics_handler)
+_metrics_logger.propagate = False  # metrics only in their own file
 
 # Disable uvicorn access logs (noisy polling spam)
 _uv_access = logging.getLogger("uvicorn.access")
@@ -48,7 +63,7 @@ from .state import StatePersister
 # from .services import NodeServicee
 from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router, history_router, dashboard_router, services_router
 from .config import settings, load_servers_config, get_server_by_id, load_alert_config, load_topic_groups_config
-from .services import NodeService, AlertService, TopicHzMonitor, SharedEchoMonitor, HistoryStore, LogCollector
+from .services import NodeService, AlertService, TopicHzMonitor, SharedEchoMonitor, HistoryStore, LogCollector, MetricsLogger
 from fastapi.responses import FileResponse, JSONResponse
 
 
@@ -64,6 +79,7 @@ class AppState:
     shared_echo_monitor: Optional[SharedEchoMonitor] = None
     history_store: Optional[HistoryStore] = None
     log_collector: Optional[LogCollector] = None
+    metrics_logger: Optional[MetricsLogger] = None
     is_shutting_down: bool = False
 
 
@@ -140,10 +156,20 @@ async def connect_to_server(server: ServerConfig) -> None:
     app_state.history_store = history_store
     app_state.log_collector = log_collector
 
+    # Start metrics logger (periodic observability data to logs/metrics.log)
+    if not app_state.metrics_logger:
+        app_state.metrics_logger = MetricsLogger(app_state)
+        await app_state.metrics_logger.start()
+
 
 async def disconnect_server() -> None:
     """Disconnect from current server and cleanup services."""
     global app_state
+
+    # Stop metrics logger
+    if app_state.metrics_logger:
+        await app_state.metrics_logger.stop()
+        app_state.metrics_logger = None
 
     # Stop log collector first (it feeds history_store and alert_service)
     if app_state.log_collector:
@@ -273,6 +299,8 @@ async def _shutdown_services() -> None:
     """Stop all services in parallel."""
     import asyncio
     tasks = []
+    if app_state.metrics_logger:
+        tasks.append(app_state.metrics_logger.stop())
     if app_state.log_collector:
         tasks.append(app_state.log_collector.stop())
     if app_state.topic_hz_monitor:
