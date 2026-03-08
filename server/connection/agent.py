@@ -56,6 +56,7 @@ class AgentConnection:
         self._reader_task: Optional[asyncio.Task] = None
         self._reconnect_delay = 1.0
         self._connected = False
+        self._disconnect_event = asyncio.Event()
         self.container = ""
 
     @property
@@ -72,6 +73,7 @@ class AgentConnection:
                 ping_timeout=30,
             )
             self._connected = True
+            self._disconnect_event.clear()
             self._reader_task = asyncio.create_task(self._reader_loop())
             logger.info(f'Connected to monitoring agent at {self._agent_url}')
         except Exception as e:
@@ -194,11 +196,18 @@ class AgentConnection:
                 logger.warning(f'Agent WebSocket connection lost: {e}')
 
             self._connected = False
+            # Notify all active subscribe_json() / exec_stream() iterators about disconnect
+            self._disconnect_event.set()
+            for queue in self._subscription_queues.values():
+                try:
+                    queue.put_nowait(None)  # sentinel
+                except Exception:
+                    pass
+            self._subscription_queues.clear()
             for fut in self._pending.values():
                 if not fut.done():
                     fut.set_exception(ConnectionError('Connection lost'))
             self._pending.clear()
-            self._subscription_queues.clear()
 
             logger.info(f'Reconnecting to agent in {delay:.0f}s...')
             await asyncio.sleep(delay)
@@ -212,6 +221,7 @@ class AgentConnection:
                     ping_timeout=30,
                 )
                 self._connected = True
+                self._disconnect_event.clear()
                 delay = self._reconnect_delay
                 logger.info(f'Reconnected to monitoring agent at {self._agent_url}')
             except asyncio.CancelledError:
@@ -231,13 +241,33 @@ class AgentConnection:
             sub_id = await self._subscribe(channel, params or {})
             queue = self._subscription_queues.get(sub_id)
 
-            while self._connected:
-                try:
-                    data = await asyncio.wait_for(queue.get(), timeout=60.0)
-                except asyncio.TimeoutError:
-                    continue
-                if data is not None:
+            disconnect_task = asyncio.ensure_future(self._disconnect_event.wait())
+            try:
+                while self._connected:
+                    get_task = asyncio.ensure_future(queue.get())
+
+                    done, pending = await asyncio.wait(
+                        [get_task, disconnect_task],
+                        timeout=60.0,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    for t in pending:
+                        t.cancel()
+
+                    if disconnect_task in done:
+                        get_task.cancel()
+                        raise ConnectionError('Agent connection lost')
+
+                    if not done:
+                        continue
+
+                    data = get_task.result()
+                    if data is None:  # sentinel
+                        raise ConnectionError('Agent connection lost')
                     yield data
+            finally:
+                disconnect_task.cancel()
         except asyncio.CancelledError:
             raise
         except ConnectionError:
@@ -262,16 +292,37 @@ class AgentConnection:
             sub_id = await self._subscribe(channel, params)
             queue = self._subscription_queues.get(sub_id)
 
-            while self._connected:
-                try:
-                    data = await asyncio.wait_for(queue.get(), timeout=60.0)
-                except asyncio.TimeoutError:
-                    continue
+            disconnect_task = asyncio.ensure_future(self._disconnect_event.wait())
+            try:
+                while self._connected:
+                    get_task = asyncio.ensure_future(queue.get())
 
-                if channel == 'topic.hz':
-                    hz = data.get('hz', 0.0)
-                    if hz > 0:
-                        yield f'average rate: {hz:.3f}'
+                    done, pending = await asyncio.wait(
+                        [get_task, disconnect_task],
+                        timeout=60.0,
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    for t in pending:
+                        t.cancel()
+
+                    if disconnect_task in done:
+                        get_task.cancel()
+                        raise ConnectionError('Agent connection lost')
+
+                    if not done:
+                        continue
+
+                    data = get_task.result()
+                    if data is None:  # sentinel
+                        raise ConnectionError('Agent connection lost')
+
+                    if channel == 'topic.hz':
+                        hz = data.get('hz', 0.0)
+                        if hz > 0:
+                            yield f'average rate: {hz:.3f}'
+            finally:
+                disconnect_task.cancel()
         except asyncio.CancelledError:
             raise
         except ConnectionError:

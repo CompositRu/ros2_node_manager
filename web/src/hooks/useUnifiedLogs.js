@@ -54,9 +54,7 @@ export function useUnifiedLogs(enabled = true) {
     wsRef.current = ws;
 
     return () => {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close();
-      }
+      ws.close();
     };
   }, [enabled]);
 

@@ -110,7 +110,7 @@ class SharedEchoMonitor:
         if not subscribers:
             return
 
-        for queue in subscribers:
+        for queue in list(subscribers):
             try:
                 queue.put_nowait(message)
             except asyncio.QueueFull:
@@ -123,6 +123,16 @@ class SharedEchoMonitor:
             if data is None:
                 return message
 
+            # Fast path: skip obviously-small messages without json.dumps overhead.
+            # For strings, len() is accurate. For dicts, use str() as a cheap estimate
+            # (slightly overestimates due to repr formatting, but avoids json.dumps).
+            if isinstance(data, str):
+                if len(data) < _MAX_MESSAGE_BYTES:
+                    return message
+            elif len(str(data)) < _MAX_MESSAGE_BYTES:
+                return message
+
+            # Slow path: full serialization for potentially-large messages
             serialized = json.dumps(data, ensure_ascii=False) if not isinstance(data, str) else data
             if len(serialized.encode('utf-8')) <= _MAX_MESSAGE_BYTES:
                 return message
@@ -139,6 +149,14 @@ class SharedEchoMonitor:
     async def stop(self) -> None:
         self._running = False
         logger.info("SharedEchoMonitor: stopping all...")
+
+        # Send sentinel to all subscriber queues so WebSocket loops exit
+        for subscribers in self._topic_subscribers.values():
+            for queue in subscribers:
+                try:
+                    queue.put_nowait(None)
+                except Exception:
+                    pass
 
         for task in self._topic_tasks.values():
             task.cancel()

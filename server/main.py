@@ -63,7 +63,7 @@ from .state import StatePersister
 # from .services import NodeServicee
 from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router, history_router, dashboard_router, services_router
 from .config import settings, load_servers_config, get_server_by_id, load_alert_config, load_topic_groups_config
-from .services import NodeService, AlertService, TopicHzMonitor, SharedEchoMonitor, HistoryStore, LogCollector, MetricsLogger
+from .services import NodeService, AlertService, TopicHzMonitor, SharedEchoMonitor, SharedDiagnosticsCollector, SharedNodeStatusBroadcaster, HistoryStore, LogCollector, MetricsLogger
 from fastapi.responses import FileResponse, JSONResponse
 
 
@@ -77,6 +77,8 @@ class AppState:
     alert_service: Optional[AlertService] = None
     topic_hz_monitor: Optional[TopicHzMonitor] = None
     shared_echo_monitor: Optional[SharedEchoMonitor] = None
+    shared_diagnostics: Optional[SharedDiagnosticsCollector] = None
+    shared_node_status: Optional[SharedNodeStatusBroadcaster] = None
     history_store: Optional[HistoryStore] = None
     log_collector: Optional[LogCollector] = None
     metrics_logger: Optional[MetricsLogger] = None
@@ -104,6 +106,12 @@ async def connect_to_server(server: ServerConfig) -> None:
     if app_state.shared_echo_monitor:
         await app_state.shared_echo_monitor.stop()
         app_state.shared_echo_monitor = None
+    if app_state.shared_diagnostics:
+        await app_state.shared_diagnostics.stop()
+        app_state.shared_diagnostics = None
+    if app_state.shared_node_status:
+        await app_state.shared_node_status.stop()
+        app_state.shared_node_status = None
     if app_state.alert_service:
         await app_state.alert_service.stop()
         app_state.alert_service = None
@@ -134,6 +142,14 @@ async def connect_to_server(server: ServerConfig) -> None:
     # Initialize shared echo monitor (one subscription per topic, fan-out to all clients)
     shared_echo_monitor = SharedEchoMonitor(connection)
 
+    # Initialize shared diagnostics collector (one set of subscriptions, broadcast to all clients)
+    shared_diagnostics = SharedDiagnosticsCollector(connection)
+    await shared_diagnostics.start()
+
+    # Initialize shared node status broadcaster (one polling loop, fan-out to all WS clients)
+    shared_node_status = SharedNodeStatusBroadcaster()
+    await shared_node_status.start(node_service, disconnect_server)
+
     # Initialize history store (persistent log/alert storage)
     history_store = HistoryStore(server.id, settings.data_dir)
     await history_store.initialize()
@@ -153,6 +169,8 @@ async def connect_to_server(server: ServerConfig) -> None:
     app_state.alert_service = alert_service
     app_state.topic_hz_monitor = topic_hz_monitor
     app_state.shared_echo_monitor = shared_echo_monitor
+    app_state.shared_diagnostics = shared_diagnostics
+    app_state.shared_node_status = shared_node_status
     app_state.history_store = history_store
     app_state.log_collector = log_collector
 
@@ -190,6 +208,16 @@ async def disconnect_server() -> None:
     if app_state.shared_echo_monitor:
         await app_state.shared_echo_monitor.stop()
         app_state.shared_echo_monitor = None
+
+    # Stop shared diagnostics collector
+    if app_state.shared_diagnostics:
+        await app_state.shared_diagnostics.stop()
+        app_state.shared_diagnostics = None
+
+    # Stop shared node status broadcaster
+    if app_state.shared_node_status:
+        await app_state.shared_node_status.stop()
+        app_state.shared_node_status = None
 
     # Stop alert service
     if app_state.alert_service:
@@ -307,6 +335,10 @@ async def _shutdown_services() -> None:
         tasks.append(app_state.topic_hz_monitor.stop())
     if app_state.shared_echo_monitor:
         tasks.append(app_state.shared_echo_monitor.stop())
+    if app_state.shared_diagnostics:
+        tasks.append(app_state.shared_diagnostics.stop())
+    if app_state.shared_node_status:
+        tasks.append(app_state.shared_node_status.stop())
     if app_state.alert_service:
         tasks.append(app_state.alert_service.stop())
     if app_state.history_store:

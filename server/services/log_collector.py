@@ -34,6 +34,10 @@ class LogCollector:
         self._subscribers: dict[str, set] = defaultdict(set)
         self._all_subscribers: set = set()
 
+        # Reverse lookup for O(1) dispatch
+        self._full_name_queues: dict[str, set] = defaultdict(set)   # full_name -> queues
+        self._short_name_queues: dict[str, set] = defaultdict(set)  # short_name -> queues
+
         # Callback subscribers (for HistoryStore, AlertService)
         self._callbacks: list[Callable[[LogMessage], None]] = []
 
@@ -60,6 +64,18 @@ class LogCollector:
     async def stop(self) -> None:
         """Stop the background stream."""
         self._running = False
+        # Send sentinel to all subscriber queues so WebSocket loops exit
+        for queue in self._all_subscribers:
+            try:
+                queue.put_nowait(None)
+            except Exception:
+                pass
+        for queues in self._subscribers.values():
+            for queue in queues:
+                try:
+                    queue.put_nowait(None)
+                except Exception:
+                    pass
         if self._task:
             self._task.cancel()
             try:
@@ -70,6 +86,8 @@ class LogCollector:
         self._callbacks.clear()
         self._all_subscribers.clear()
         self._subscribers.clear()
+        self._full_name_queues.clear()
+        self._short_name_queues.clear()
         logger.info("Log collector stopped")
 
     # ─────────────────────────────────────────────────────────────────
@@ -79,12 +97,24 @@ class LogCollector:
     def subscribe(self, node_name: str, queue: asyncio.Queue) -> None:
         """Subscribe to logs for a specific node."""
         self._subscribers[node_name].add(queue)
+        # Update reverse lookup
+        self._full_name_queues[node_name].add(queue)
+        short = node_name.rsplit("/", 1)[-1] if "/" in node_name else node_name
+        self._short_name_queues[short].add(queue)
 
     def unsubscribe(self, node_name: str, queue: asyncio.Queue) -> None:
         """Unsubscribe from node-specific logs."""
         self._subscribers[node_name].discard(queue)
         if not self._subscribers[node_name]:
             del self._subscribers[node_name]
+        # Update reverse lookup
+        self._full_name_queues[node_name].discard(queue)
+        if not self._full_name_queues[node_name]:
+            del self._full_name_queues[node_name]
+        short = node_name.rsplit("/", 1)[-1] if "/" in node_name else node_name
+        self._short_name_queues[short].discard(queue)
+        if not self._short_name_queues[short]:
+            del self._short_name_queues[short]
 
     def subscribe_all(self, queue: asyncio.Queue) -> None:
         """Subscribe to all logs."""
@@ -231,16 +261,18 @@ class LogCollector:
             except asyncio.QueueFull:
                 pass  # drop: client is slow
 
-        # 3. Node-specific subscribers (WebSocket /ws/logs/{node})
-        #    Match by full name and by short name (last segment)
-        if self._subscribers:
+        # 3. Node-specific subscribers — O(1) lookup
+        if self._full_name_queues or self._short_name_queues:
+            target_queues = set()
+            # Match by full name
+            target_queues.update(self._full_name_queues.get(msg.node_name, ()))
+            # Match by short name
             short_name = msg.node_name.rsplit("/", 1)[-1] if "/" in msg.node_name else msg.node_name
-            for sub_name, queues in self._subscribers.items():
-                sub_short = sub_name.rsplit("/", 1)[-1] if "/" in sub_name else sub_name
-                if msg.node_name == sub_name or short_name == sub_short:
-                    for queue in queues:
-                        try:
-                            queue.put_nowait(msg)
-                        except asyncio.QueueFull:
-                            pass
+            target_queues.update(self._short_name_queues.get(short_name, ()))
+
+            for queue in target_queues:
+                try:
+                    queue.put_nowait(msg)
+                except asyncio.QueueFull:
+                    pass
 

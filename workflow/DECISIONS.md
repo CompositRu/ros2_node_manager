@@ -112,3 +112,45 @@
 **Решение:** ros2_node_manager (веб-интерфейс) отдельно от tram.autoware (ROS2 стек).
 
 **Почему:** Разные lifecycle: веб-интерфейс обновляется независимо от ROS2 стека. Разные инструменты сборки (pip/npm vs colcon). Monitoring agent — часть ROS2 стека, потому что ему нужен прямой доступ к rclpy.
+
+---
+
+### D11: Shared-сервисы для всех streaming endpoints
+
+**Решение:** Единый shared-сервис для каждого типа данных (diagnostics, node status, hz, echo, logs). Один фоновый процесс на канал, per-client DroppableQueue с sentinel-based cleanup.
+
+**Почему:** Per-client подписки не масштабируются: 10 клиентов `/ws/diagnostics` создавали 40 подписок на агент + 50 tasks. Аналогично для node status (N polling loops) и hz-single (N подписок на один топик).
+
+**Паттерн:** SharedEchoMonitor (уже был) → применён к diagnostics, node status, hz-single.
+
+**Ключевые детали:**
+- Все stop() методы рассылают sentinel (None) в subscriber-очереди
+- Все WS endpoint loops проверяют `if msg is None: break`
+- _broadcast итерирует по `list(subscribers)` для защиты от RuntimeError
+- SharedNodeStatusBroadcaster: disconnect_callback через `asyncio.create_task` (fire-and-forget) чтобы избежать deadlock
+
+**Отклонено:**
+- Мультиплексирование в один WS — слишком сложно, не нужно при <100 клиентах
+
+---
+
+### D12: Disconnect event + sentinel для быстрого восстановления agent connection
+
+**Решение:** `asyncio.Event` (`_disconnect_event`) + sentinel None в очередях при обрыве WebSocket к агенту. `subscribe_json()` и `exec_stream()` используют `asyncio.wait()` с disconnect_task для мгновенного выхода.
+
+**Почему:** При обрыве все итераторы `subscribe_json()` ждали 60 секунд до timeout. Теперь — мгновенное уведомление через event, retry через 1-5 секунд.
+
+**Отклонено:**
+- Polling `self._connected` чаще — лишние wake-ups, не решает проблему полностью
+
+---
+
+### D13: Frontend WebSocket reconnect с exponential backoff + jitter
+
+**Решение:** Утилита `createReconnectingSocket` — обёртка над WebSocket с auto-reconnect. Backoff: 1s → 2s → 4s → 8s → 16s (max), jitter ±30%. Max 20 retries. Применена ко всем 8 WebSocket-фабрикам.
+
+**Почему:** Раньше reconnect был только в useAlerts (фиксированный 5s), остальные хуки не переподключались. При массовом обрыве — thundering herd (все клиенты в один момент).
+
+**Отклонено:**
+- Фиксированный delay — thundering herd
+- Без reconnect — плохой UX, пользователь должен перезагружать страницу

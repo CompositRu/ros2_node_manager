@@ -1,108 +1,69 @@
 """WebSocket endpoints for real-time updates."""
 
 import asyncio
-import json
 import logging
 from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
 
-from ..models import NodeStatus
-from ..services import (
-    stream_diagnostics_json, stream_bool_topic_json, stream_mrm_status_json, stream_mrm_state_json,
-)
 from ..services.metrics import metrics
 from ..services.droppable_queue import DroppableQueue
-from ..connection import ContainerNotFoundError, ConnectionError as ConnError
+
 from ..config import load_topic_groups_config
 
 router = APIRouter(tags=["websocket"])
 
-_ws_debug_counter = [0]  # mutable to allow closure update
-
-
 @router.websocket("/ws/nodes/status")
 async def nodes_status_websocket(websocket: WebSocket):
-    """
-    WebSocket for real-time node status updates.
-    Sends updates every 5 seconds.
-    """
-    from ..main import app_state, disconnect_server
+    """WebSocket for real-time node status updates."""
+    from ..main import app_state
 
     await websocket.accept()
     metrics.ws_connect("status")
 
+    broadcaster = app_state.shared_node_status
+    if not broadcaster:
+        await websocket.send_json({
+            "type": "disconnected",
+            "message": "Not connected to server"
+        })
+        await websocket.close()
+        metrics.ws_disconnect("status")
+        return
+
+    queue = DroppableQueue(maxsize=10)
+    broadcaster.subscribe(queue)
+
     try:
         while not app_state.is_shutting_down:
-            if app_state.node_service:
-                try:
-                    # Refresh nodes
-                    response = await app_state.node_service.refresh_nodes()
-
-                    # Build status dict
-                    nodes_status = {
-                        n.name: n.status.value
-                        for n in response.nodes
-                    }
-
-                    # Debug first update
-                    if _ws_debug_counter[0] < 3:
-                        _ws_debug_counter[0] += 1
-                        logger.debug(f"[ws/nodes] Update #{_ws_debug_counter[0]}: "
-                              f"active={response.active} inactive={response.inactive} total={response.total}")
-
-                    # Send update
-                    await websocket.send_json({
-                        "type": "nodes_update",
-                        "total": response.total,
-                        "active": response.active,
-                        "inactive": response.inactive,
-                        "nodes": nodes_status,
-                        "timestamp": datetime.now().isoformat()
-                    })
-                except (ContainerNotFoundError, ConnError) as e:
-                    logger.warning(f"Connection lost, auto-disconnecting: {e}")
-                    # Notify client about connection loss
-                    await websocket.send_json({
-                        "type": "container_stopped",
-                        "message": str(e)
-                    })
-                    # Disconnect from server
-                    await disconnect_server()
-                    # Send disconnected status
-                    await websocket.send_json({
-                        "type": "disconnected",
-                        "message": "Server disconnected due to connection loss"
-                    })
-            else:
-                await websocket.send_json({
-                    "type": "disconnected",
-                    "message": "Not connected to server"
-                })
-
-            for _ in range(10):
-                if app_state.is_shutting_down:
-                    break
-                await asyncio.sleep(0.5)
+            msg = await queue.get()
+            if msg is None:
+                break
+            await websocket.send_json(msg)
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
+        broadcaster.unsubscribe(queue)
         metrics.ws_disconnect("status")
 
 
 @router.websocket("/ws/diagnostics")
 async def diagnostics_websocket(websocket: WebSocket):
-    """WebSocket for streaming /diagnostics topic data."""
+    """WebSocket for streaming /diagnostics topic data.
+
+    Uses SharedDiagnosticsCollector — one set of subscriptions shared across all clients.
+    """
     from ..main import app_state
 
     await websocket.accept()
     metrics.ws_connect("diagnostic")
 
-    if not app_state.connection or not app_state.connection.connected:
+    collector = app_state.shared_diagnostics
+    if not collector:
         await websocket.send_json({
             "type": "error",
             "message": "Not connected to server"
@@ -111,78 +72,23 @@ async def diagnostics_websocket(websocket: WebSocket):
         metrics.ws_disconnect("diagnostic")
         return
 
-    tasks = []
+    queue = DroppableQueue(maxsize=500)
+    collector.subscribe(queue)
+
     try:
         await websocket.send_json({
             "type": "connected",
             "message": "Streaming diagnostics"
         })
 
-        conn = app_state.connection
-
-        async def _send_items(items):
-            await websocket.send_json({
-                "type": "diagnostics",
-                "items": [
-                    {
-                        "name": item.name,
-                        "level": item.level,
-                        "message": item.message,
-                        "hardware_id": item.hardware_id,
-                        "values": item.values,
-                        "timestamp": item.timestamp.isoformat(),
-                    }
-                    for item in items
-                ],
-            })
-
-        async def run_with_retry(name, coro_factory, retry_delay=5):
-            """Run a stream coroutine with automatic retry on failure."""
-            while True:
-                try:
-                    logger.debug(f"[diag] Starting stream: {name}")
-                    async for items in coro_factory():
-                        await _send_items(items)
-                    logger.debug(f"[diag] Stream ended: {name}, retrying in {retry_delay}s")
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    logger.warning(f"[diag] Stream error in {name}: {e}, retrying in {retry_delay}s")
-                await asyncio.sleep(retry_delay)
-
-        tasks = [
-            asyncio.create_task(run_with_retry(
-                "/diagnostics",
-                lambda: stream_diagnostics_json(conn),
-            )),
-            asyncio.create_task(run_with_retry(
-                "lidar_sync_flag",
-                lambda: stream_bool_topic_json(
-                    conn,
-                    "/sensing/lidar/concatenated/lidar_sync_checker/lidar_sync_flag",
-                    "lidar_sync_flag",
-                ),
-            )),
-            asyncio.create_task(run_with_retry(
-                "mrm_status",
-                lambda: stream_mrm_status_json(conn),
-            )),
-            asyncio.create_task(run_with_retry(
-                "mrm_state",
-                lambda: stream_mrm_state_json(conn),
-            )),
-        ]
-
-        # Sentinel: wait for client disconnect
-        async def _wait_disconnect():
-            try:
-                while True:
-                    await websocket.receive_text()
-            except WebSocketDisconnect:
-                pass
-
-        tasks.append(asyncio.create_task(_wait_disconnect()))
-        await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        while True:
+            msg = await queue.get()
+            if msg is None:
+                break  # service stopped
+            dropped = queue.reset_dropped()
+            if dropped:
+                await websocket.send_json({"type": "dropped", "count": dropped})
+            await websocket.send_json(msg)
 
     except WebSocketDisconnect:
         pass
@@ -193,10 +99,7 @@ async def diagnostics_websocket(websocket: WebSocket):
         except:
             pass
     finally:
-        # Cancel all stream tasks
-        for t in tasks:
-            t.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+        collector.unsubscribe(queue)
         metrics.ws_disconnect("diagnostic")
 
 
@@ -244,6 +147,8 @@ async def all_logs_websocket(websocket: WebSocket):
 
         while True:
             log_msg = await queue.get()
+            if log_msg is None:
+                break  # service stopped
             # LogMessage is not a dict, so _dropped won't be attached — use reset_dropped()
             dropped = queue.reset_dropped()
             if dropped:
@@ -262,7 +167,7 @@ async def all_logs_websocket(websocket: WebSocket):
         logger.error(f"All-logs WebSocket error: {e}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
-        except:
+        except Exception:
             pass
     finally:
         if app_state.log_collector:
@@ -319,6 +224,8 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
 
         while True:
             log_msg = await queue.get()
+            if log_msg is None:
+                break  # service stopped
             # LogMessage is not a dict, so _dropped won't be attached — use reset_dropped()
             dropped = queue.reset_dropped()
             if dropped:
@@ -339,7 +246,7 @@ async def node_logs_websocket(websocket: WebSocket, node_name: str):
                 "type": "error",
                 "message": str(e)
             })
-        except:
+        except Exception:
             pass
     finally:
         if app_state.log_collector:
@@ -493,6 +400,8 @@ async def topic_echo_single_websocket(websocket: WebSocket, topic: str):
 
         while True:
             msg = await queue.get()
+            if msg is None:
+                break  # service stopped
             dropped = msg.pop("_dropped", 0) if isinstance(msg, dict) else 0
             if dropped:
                 await websocket.send_json({"type": "dropped", "count": dropped})
@@ -504,7 +413,7 @@ async def topic_echo_single_websocket(websocket: WebSocket, topic: str):
         logger.error(f"Single Topic Echo WebSocket error: {e}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
-        except:
+        except Exception:
             pass
     finally:
         app_state.shared_echo_monitor.unsubscribe(queue)
@@ -513,10 +422,7 @@ async def topic_echo_single_websocket(websocket: WebSocket, topic: str):
 
 @router.websocket("/ws/topics/hz-single/{topic:path}")
 async def topic_hz_single_websocket(websocket: WebSocket, topic: str):
-    """WebSocket for streaming Hz of a single topic.
-
-    Runs `ros2 topic hz` and parses output to send rate values.
-    """
+    """WebSocket for streaming Hz of a single topic via shared TopicHzMonitor."""
     from ..main import app_state
 
     await websocket.accept()
@@ -525,12 +431,14 @@ async def topic_hz_single_websocket(websocket: WebSocket, topic: str):
     if not topic.startswith("/"):
         topic = "/" + topic
 
-    if not app_state.connection or not app_state.connection.connected:
-        await websocket.send_json({"type": "error", "message": "Not connected to server"})
+    if not app_state.topic_hz_monitor:
+        await websocket.send_json({"type": "error", "message": "Topic monitoring not active"})
         await websocket.close()
         metrics.ws_disconnect("topic_hz")
         return
 
+    queue = DroppableQueue(maxsize=50)
+    app_state.topic_hz_monitor.subscribe_topic(topic, queue)
     try:
         await websocket.send_json({
             "type": "connected",
@@ -538,20 +446,14 @@ async def topic_hz_single_websocket(websocket: WebSocket, topic: str):
             "topic": topic,
         })
 
-        cmd = f"ros2 topic hz {topic}"
-        async for line in app_state.connection.exec_stream(cmd):
-            line = line.strip()
-            if "average rate:" in line:
-                try:
-                    rate = float(line.split("average rate:")[1].strip())
-                    await websocket.send_json({
-                        "type": "hz",
-                        "topic": topic,
-                        "hz": rate,
-                        "timestamp": datetime.now().isoformat(),
-                    })
-                except (ValueError, IndexError):
-                    pass
+        while True:
+            msg = await queue.get()
+            if msg is None:
+                break
+            dropped = msg.pop("_dropped", 0) if isinstance(msg, dict) else 0
+            if dropped:
+                await websocket.send_json({"type": "dropped", "count": dropped})
+            await websocket.send_json(msg)
 
     except WebSocketDisconnect:
         pass
@@ -562,6 +464,8 @@ async def topic_hz_single_websocket(websocket: WebSocket, topic: str):
         except:
             pass
     finally:
+        if app_state.topic_hz_monitor:
+            app_state.topic_hz_monitor.unsubscribe_topic(topic, queue)
         metrics.ws_disconnect("topic_hz")
 
 
@@ -614,6 +518,8 @@ async def topic_echo_websocket(websocket: WebSocket, group_id: str):
 
         while True:
             msg = await queue.get()
+            if msg is None:
+                break  # service stopped
             dropped = msg.pop("_dropped", 0) if isinstance(msg, dict) else 0
             if dropped:
                 await websocket.send_json({"type": "dropped", "count": dropped})
@@ -628,7 +534,7 @@ async def topic_echo_websocket(websocket: WebSocket, group_id: str):
         logger.error(f"Topic Echo WebSocket error: {e}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
-        except:
+        except Exception:
             pass
     finally:
         app_state.shared_echo_monitor.unsubscribe(queue)

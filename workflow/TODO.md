@@ -2,48 +2,41 @@
 
 > Обновляется в начале каждой сессии. Содержит только то, что делается сейчас.
 
-## Оптимизация agent mode — ЗАВЕРШЕНО
+## Масштабируемость при множестве клиентов — DONE
 
-### Backend — subscribe_json + прямой JSON путь
-- [x] `AgentConnection.subscribe_json()` — прямой JSON streaming без YAML round-trip
-- [x] LogCollector: `_collect_loop_json()` → `subscribe_json('logs')` → `_parse_json_log(dict)` → LogMessage
-- [x] Diagnostics: `stream_diagnostics_json()`, `stream_mrm_status_json()`, `stream_mrm_state_json()`, `stream_bool_topic_json()`
-- [x] WebSocket `/ws/diagnostics` — автоматически выбирает JSON/YAML путь по типу соединения
-- [x] Удалены `_log_event_to_yaml`, `_diag_event_to_yaml`, ветки exec_stream для logs/diagnostics/echo
+Детальный план: `workflow/PLAN_SCALABILITY.md`
 
-### Backend — SharedEchoMonitor
-- [x] `SharedEchoMonitor` — один поток на топик, fan-out всем клиентам через ref-counting
-- [x] Agent mode: `subscribe_json('topic.echo')` → JSON dict
-- [x] Docker mode: `exec_stream` → YAML text (fallback)
-- [x] WebSocket `/ws/topics/echo/{group_id}` и `/ws/topics/echo-single/{topic}` — через SharedEchoMonitor
-- [x] Truncation: сообщения >10KB обрезаются
+### Фаза 1: Shared Diagnostics — DONE
+- [x] 1.1 Создать `SharedDiagnosticsCollector` (по аналогии с SharedEchoMonitor)
+- [x] 1.2 Рефакторинг endpoint `/ws/diagnostics` — через shared queue
+- [x] 1.3 Инициализация в `app_state` (start/stop)
 
-### Backend — DroppableQueue + уведомления
-- [x] `DroppableQueue` — обёртка asyncio.Queue, считает дропы при QueueFull
-- [x] Echo endpoints: `{"type": "dropped", "count": N}` перед следующим сообщением
-- [x] Log endpoints: аналогично
-- [x] AgentConnection._reader_loop: DroppableQueue вместо asyncio.Queue
+### Фаза 2: Shared Node Status — DONE
+- [x] 2.1 Создать `SharedNodeStatusBroadcaster`
+- [x] 2.2 Рефакторинг endpoint `/ws/nodes/status`
+- [x] 2.3 Обработка disconnect-а сервера в broadcaster
 
-### Backend/Agent — приоритизация WebSocket трафика
-- [x] Backend: channel-dependent queue sizes (`logs=2000, diagnostics=1000, echo=200, hz=100`)
-- [x] Agent: per-client `_ClientWriter` с `PriorityQueue` (logs/diag=0, hz=1, echo=2)
-- [x] Документация: секция "Event Priority" в `docs/agent_protocol.md`
+### Фаза 3: Shared Hz-Single — DONE
+- [x] 3.1 Расширить `TopicHzMonitor` для single-topic subscribe
+- [x] 3.2 Рефакторинг endpoint `/ws/topics/hz-single/{topic}`
 
-### Frontend
-- [x] `JsonView` компонент — structured JSON view (ключи синие, числа зелёные, строки оранжевые)
-- [x] Topics.jsx EchoPanel — рендерит JsonView для `format=json`, fallback на `<pre>` для YAML
-- [x] TopicTree.jsx — JsonView + filterJsonFields для echo одиночных топиков
+### Фаза 4: Agent Reconnect — быстрое восстановление — DONE
+- [x] 4.1 Sentinel-значение в очереди при разрыве
+- [x] 4.2 `_disconnect_event` для мгновенного уведомления `subscribe_json()`
 
-### Code Review исправления
-- [x] `asyncio.get_event_loop()` → `asyncio.get_running_loop()` (Python 3.10+ deprecation)
-- [x] DroppableQueue import через TYPE_CHECKING + lazy import в _subscribe
-- [x] Diagnostics WS — sentinel task для обнаружения disconnect клиента
-- [x] `assert isinstance` → explicit TypeError check в продакшн-коде
-- [x] JsonView — убрана дублированная ternary ветка
-- [x] Убран излишний asyncio.Lock в diagnostics endpoint
+### Фаза 5: Оптимизация broadcast-путей — DONE
+- [x] 5.1 Убрать лишний `json.dumps` в `_maybe_truncate`
+- [x] 5.2 O(1) lookup в `LogCollector._dispatch`
 
-## Остаётся
+### Фаза 6: Frontend reconnect — DONE
+- [x] 6.1 Утилита `createReconnectingSocket` с exp backoff + jitter
+- [x] 6.2 Применить ко всем WS-хукам
 
-### Тестирование
-- [ ] Нагрузочный тест: несколько клиентов × несколько топиков через agent
-- [ ] Рассмотреть разделение на несколько WS-соединений (control vs data) — опционально
+### Code Review фиксы
+- [x] Deadlock в SharedNodeStatusBroadcaster (fire-and-forget disconnect_callback)
+- [x] Sentinel None во всех stop() методах (LogCollector, SharedEchoMonitor, SharedDiagnostics, TopicHzMonitor)
+- [x] Sentinel check (`if msg is None: break`) во всех WS endpoint loops
+- [x] `list(subscribers)` в _broadcast для защиты от RuntimeError
+- [x] Исправлена эвристика truncate (str() вместо sys.getsizeof)
+- [x] None-safe cleanup в finally блоках
+- [x] Голые `except:` → `except Exception:`

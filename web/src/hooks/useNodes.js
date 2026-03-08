@@ -69,9 +69,7 @@ export function useNodes({ onDisconnect } = {}) {
     );
 
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
+      ws.close();
     };
   }, [onDisconnect]);
   

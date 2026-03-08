@@ -1,288 +1,105 @@
 /**
- * WebSocket client for real-time updates
+ * WebSocket client for real-time updates.
+ * All factories use createReconnectingSocket for automatic reconnect
+ * with exponential backoff + jitter.
  */
 
-export function createNodesStatusSocket(onMessage, onError) {
+import { createReconnectingSocket } from './reconnectingSocket';
+
+function wsUrl(path) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
-  const url = `${protocol}//${host}/ws/nodes/status`;
-  
-  const ws = new WebSocket(url);
-  
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      onMessage(data);
-    } catch (e) {
-      console.error('Failed to parse WebSocket message:', e);
-    }
-  };
-  
-  ws.onerror = (error) => {
-    console.error('WebSocket error:', error);
-    if (onError) onError(error);
-  };
-  
-  ws.onclose = () => {
-    console.log('Nodes status WebSocket closed');
-  };
-  
-  return ws;
+  return `${protocol}//${window.location.host}${path}`;
+}
+
+export function createNodesStatusSocket(onMessage, onError) {
+  return createReconnectingSocket(wsUrl('/ws/nodes/status'), {
+    onMessage,
+    onError,
+  });
 }
 
 export function createLogsSocket(nodeName, onMessage, onError, onConnected, onHistory) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
   const path = nodeName.startsWith('/') ? nodeName.slice(1) : nodeName;
-  const url = `${protocol}//${host}/ws/logs/${path}`;
-
-  const ws = new WebSocket(url);
-
-  ws.onopen = () => {
-    console.log(`Logs WebSocket connected for ${nodeName}`);
-  };
-
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-
-      if (data.type === 'connected' && onConnected) {
-        onConnected(data.message);
-      } else if (data.type === 'history' && onHistory) {
-        onHistory(data.logs);
-      } else if (data.type === 'log') {
-        onMessage(data);
-      } else if (data.type === 'error' && onError) {
-        onError(data.message);
-      }
-    } catch (e) {
-      console.error('Failed to parse log message:', e);
-    }
-  };
-
-  ws.onerror = (error) => {
-    console.error('Logs WebSocket error:', error);
-    if (onError) onError(error.message || 'WebSocket error');
-  };
-
-  ws.onclose = () => {
-    console.log(`Logs WebSocket closed for ${nodeName}`);
-  };
-
-  return ws;
+  return createReconnectingSocket(wsUrl(`/ws/logs/${path}`), {
+    onMessage: (data) => {
+      if (data.type === 'connected' && onConnected) onConnected(data.message);
+      else if (data.type === 'history' && onHistory) onHistory(data.logs);
+      else if (data.type === 'log' && onMessage) onMessage(data);
+      else if (data.type === 'error' && onError) onError(data.message);
+    },
+    onError,
+  });
 }
 
 export function createUnifiedLogsSocket(onMessage, onError, onConnected, onHistory) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
-  const url = `${protocol}//${host}/ws/logs/all`;
-
-  const ws = new WebSocket(url);
-
-  ws.onopen = () => {
-    console.log('Unified logs WebSocket connected');
-  };
-
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-
-      if (data.type === 'connected' && onConnected) {
-        onConnected(data.message);
-      } else if (data.type === 'history' && onHistory) {
-        onHistory(data.logs);
-      } else if (data.type === 'log') {
-        onMessage(data);
-      } else if (data.type === 'error' && onError) {
-        onError(data.message);
-      }
-    } catch (e) {
-      console.error('Failed to parse unified log message:', e);
-    }
-  };
-
-  ws.onerror = (error) => {
-    console.error('Unified logs WebSocket error:', error);
-    if (onError) onError(error.message || 'WebSocket error');
-  };
-
-  ws.onclose = () => {
-    console.log('Unified logs WebSocket closed');
-  };
-
-  return ws;
+  return createReconnectingSocket(wsUrl('/ws/logs/all'), {
+    onMessage: (data) => {
+      if (data.type === 'connected' && onConnected) onConnected(data.message);
+      else if (data.type === 'history' && onHistory) onHistory(data.logs);
+      else if (data.type === 'log' && onMessage) onMessage(data);
+      else if (data.type === 'error' && onError) onError(data.message);
+    },
+    onError,
+  });
 }
 
 export function createDiagnosticsSocket(onMessage, onError, onConnected, onClose) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
-  const url = `${protocol}//${host}/ws/diagnostics`;
-
-  const ws = new WebSocket(url);
-
-  ws.onopen = () => {
-    console.log('Diagnostics WebSocket connected');
-  };
-
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-
-      if (data.type === 'connected' && onConnected) {
-        onConnected(data.message);
-      } else if (data.type === 'diagnostics') {
-        onMessage(data);
-      } else if (data.type === 'error' && onError) {
-        onError(data.message);
-      }
-    } catch (e) {
-      console.error('Failed to parse diagnostics message:', e);
-    }
-  };
-
-  ws.onerror = (error) => {
-    console.error('Diagnostics WebSocket error:', error);
-    if (onError) onError(error.message || 'WebSocket error');
-  };
-
-  ws.onclose = () => {
-    console.log('Diagnostics WebSocket closed');
-    if (onClose) onClose();
-  };
-
-  return ws;
+  return createReconnectingSocket(wsUrl('/ws/diagnostics'), {
+    onMessage: (data) => {
+      if (data.type === 'connected' && onConnected) onConnected(data.message);
+      else if (data.type === 'diagnostics' && onMessage) onMessage(data);
+      else if (data.type === 'error' && onError) onError(data.message);
+    },
+    onError,
+    onClose,
+  });
 }
 
 export function createTopicHzSocket(onMessage, onError, onConnected) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
-  const url = `${protocol}//${host}/ws/topics/hz`;
-
-  const ws = new WebSocket(url);
-
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-
-      if (data.type === 'connected' && onConnected) {
-        onConnected(data.message);
-      } else if (data.type === 'hz_update') {
-        onMessage(data);
-      } else if (data.type === 'error' && onError) {
-        onError(data.message);
-      }
-    } catch (e) {
-      console.error('Failed to parse topic Hz message:', e);
-    }
-  };
-
-  ws.onerror = (error) => {
-    console.error('Topic Hz WebSocket error:', error);
-    if (onError) onError(error.message || 'WebSocket error');
-  };
-
-  ws.onclose = () => {
-    console.log('Topic Hz WebSocket closed');
-  };
-
-  return ws;
+  return createReconnectingSocket(wsUrl('/ws/topics/hz'), {
+    onMessage: (data) => {
+      if (data.type === 'connected' && onConnected) onConnected(data.message);
+      else if (data.type === 'hz_update' && onMessage) onMessage(data);
+      else if (data.type === 'error' && onError) onError(data.message);
+    },
+    onError,
+  });
 }
 
 export function createSingleTopicEchoSocket(topicName, onMessage, onError, onConnected) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
   const path = topicName.startsWith('/') ? topicName.slice(1) : topicName;
-  const url = `${protocol}//${host}/ws/topics/echo-single/${path}`;
-
-  const ws = new WebSocket(url);
-
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.type === 'connected' && onConnected) {
-        onConnected(data);
-      } else if (data.type === 'echo') {
-        onMessage(data);
-      } else if (data.type === 'error' && onError) {
-        onError(data.message);
-      }
-    } catch (e) {
-      console.error('Failed to parse single topic echo message:', e);
-    }
-  };
-
-  ws.onerror = (error) => {
-    if (onError) onError(error.message || 'WebSocket error');
-  };
-
-  ws.onclose = () => {};
-
-  return ws;
+  return createReconnectingSocket(wsUrl(`/ws/topics/echo-single/${path}`), {
+    onMessage: (data) => {
+      if (data.type === 'connected' && onConnected) onConnected(data);
+      else if (data.type === 'echo' && onMessage) onMessage(data);
+      else if (data.type === 'error' && onError) onError(data.message);
+    },
+    onError,
+  });
 }
 
 export function createSingleTopicHzSocket(topicName, onMessage, onError, onConnected) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
   const path = topicName.startsWith('/') ? topicName.slice(1) : topicName;
-  const url = `${protocol}//${host}/ws/topics/hz-single/${path}`;
-
-  const ws = new WebSocket(url);
-
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.type === 'connected' && onConnected) {
-        onConnected(data);
-      } else if (data.type === 'hz') {
-        onMessage(data);
-      } else if (data.type === 'error' && onError) {
-        onError(data.message);
-      }
-    } catch (e) {
-      console.error('Failed to parse single topic Hz message:', e);
-    }
-  };
-
-  ws.onerror = (error) => {
-    if (onError) onError(error.message || 'WebSocket error');
-  };
-
-  ws.onclose = () => {};
-
-  return ws;
+  return createReconnectingSocket(wsUrl(`/ws/topics/hz-single/${path}`), {
+    onMessage: (data) => {
+      if (data.type === 'connected' && onConnected) onConnected(data);
+      else if (data.type === 'hz' && onMessage) onMessage(data);
+      else if (data.type === 'error' && onError) onError(data.message);
+    },
+    onError,
+  });
 }
 
 export function createTopicEchoSocket(groupId, onMessage, onError, onConnected) {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const host = window.location.host;
-  const url = `${protocol}//${host}/ws/topics/echo/${groupId}`;
-
-  const ws = new WebSocket(url);
-
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-
-      if (data.type === 'connected' && onConnected) {
-        onConnected(data);
-      } else if (data.type === 'echo') {
-        onMessage(data);
-      } else if (data.type === 'error' && onError) {
-        onError(data.message);
-      }
-    } catch (e) {
-      console.error('Failed to parse topic echo message:', e);
-    }
-  };
-
-  ws.onerror = (error) => {
-    console.error('Topic Echo WebSocket error:', error);
-    if (onError) onError(error.message || 'WebSocket error');
-  };
-
-  ws.onclose = () => {
-    console.log(`Topic Echo WebSocket closed for group ${groupId}`);
-  };
-
-  return ws;
+  return createReconnectingSocket(wsUrl(`/ws/topics/echo/${groupId}`), {
+    onMessage: (data) => {
+      if (data.type === 'connected' && onConnected) onConnected(data);
+      else if (data.type === 'echo' && onMessage) onMessage(data);
+      else if (data.type === 'error' && onError) onError(data.message);
+    },
+    onError,
+  });
 }
+
+// Re-export for direct use
+export { createReconnectingSocket } from './reconnectingSocket';

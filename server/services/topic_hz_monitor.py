@@ -8,10 +8,12 @@ All WebSocket clients read from the same cache — no duplicate processes.
 import asyncio
 import logging
 import re
+from datetime import datetime
 from typing import Optional
 
 from ..connection import AgentConnection
 from ..models import TopicGroup
+from .droppable_queue import DroppableQueue
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,7 @@ class TopicHzMonitor:
         self._hz_values: dict[str, Optional[float]] = {}
         self._tasks: dict[str, asyncio.Task] = {}  # topic -> task
         self._active_groups: set[str] = set()  # group ids currently monitoring
+        self._single_subscribers: dict[str, set[DroppableQueue]] = {}  # topic -> subscriber queues
         self._running = True
 
     def is_group_active(self, group_id: str) -> bool:
@@ -54,6 +57,39 @@ class TopicHzMonitor:
 
         return True
 
+    def subscribe_topic(self, topic: str, queue: DroppableQueue) -> None:
+        """Subscribe to Hz updates for a single topic. Starts monitoring if needed."""
+        if topic not in self._single_subscribers:
+            self._single_subscribers[topic] = set()
+        self._single_subscribers[topic].add(queue)
+
+        # Start monitoring task if not already running
+        if topic not in self._tasks:
+            self._hz_values[topic] = None
+            self._tasks[topic] = asyncio.create_task(self._monitor_topic(topic))
+
+    def unsubscribe_topic(self, topic: str, queue: DroppableQueue) -> None:
+        """Unsubscribe from Hz updates for a single topic. Stops monitoring if no subscribers."""
+        subs = self._single_subscribers.get(topic)
+        if subs:
+            subs.discard(queue)
+            if not subs:
+                del self._single_subscribers[topic]
+
+        # Check if topic is still needed (by groups or other single subscribers)
+        still_needed_by_group = any(
+            topic in self._groups_by_id[gid].topics
+            for gid in self._active_groups
+            if gid in self._groups_by_id
+        )
+        still_needed_by_single = topic in self._single_subscribers
+
+        if not still_needed_by_group and not still_needed_by_single:
+            task = self._tasks.pop(topic, None)
+            if task and not task.done():
+                task.cancel()
+            self._hz_values.pop(topic, None)
+
     async def stop_group(self, group_id: str) -> bool:
         """Stop Hz monitoring for a specific group. Returns True if stopped."""
         group = self._groups_by_id.get(group_id)
@@ -74,7 +110,7 @@ class TopicHzMonitor:
 
         # Cancel tasks for topics no longer needed
         for topic in group.topics:
-            if topic not in still_needed and topic in self._tasks:
+            if topic not in still_needed and topic not in self._single_subscribers and topic in self._tasks:
                 self._tasks[topic].cancel()
                 try:
                     await self._tasks[topic]
@@ -108,6 +144,15 @@ class TopicHzMonitor:
         self._tasks.clear()
         self._hz_values.clear()
         self._active_groups.clear()
+
+        # Send sentinel to all single subscribers so their WebSocket loops exit
+        for subs in self._single_subscribers.values():
+            for queue in subs:
+                try:
+                    queue.put_nowait(None)
+                except Exception:
+                    pass
+        self._single_subscribers.clear()
         logger.info("TopicHzMonitor: stopped")
 
     def get_groups_with_hz(self) -> list[dict]:
@@ -129,6 +174,23 @@ class TopicHzMonitor:
             })
         return result
 
+    def _notify_single_subscribers(self, topic: str, hz_value: float | None) -> None:
+        """Notify single-topic subscribers about Hz update."""
+        subs = self._single_subscribers.get(topic)
+        if not subs:
+            return
+        message = {
+            "type": "hz",
+            "topic": topic,
+            "hz": hz_value,
+            "timestamp": datetime.now().isoformat(),
+        }
+        for queue in list(subs):
+            try:
+                queue.put_nowait(message)
+            except Exception:
+                pass
+
     async def _monitor_topic(self, topic: str) -> None:
         """Monitor Hz for a single topic. Restarts on failure."""
         retry_delay = 5
@@ -142,10 +204,12 @@ class TopicHzMonitor:
                     match = _HZ_PATTERN.search(line)
                     if match:
                         self._hz_values[topic] = round(float(match.group(1)), 2)
+                        self._notify_single_subscribers(topic, self._hz_values[topic])
 
                 # Stream ended — mark as no data
                 if self._running:
                     self._hz_values[topic] = None
+                    self._notify_single_subscribers(topic, None)
 
             except asyncio.CancelledError:
                 break
@@ -153,6 +217,7 @@ class TopicHzMonitor:
                 if self._running:
                     logger.error(f"TopicHzMonitor: error monitoring {topic}: {e}")
                     self._hz_values[topic] = None
+                    self._notify_single_subscribers(topic, None)
 
             if self._running:
                 await asyncio.sleep(retry_delay)
