@@ -10,9 +10,7 @@ logger = logging.getLogger(__name__)
 
 from ..models import NodeStatus
 from ..services import (
-    stream_diagnostics, stream_bool_topic, stream_mrm_status, stream_mrm_state,
     stream_diagnostics_json, stream_bool_topic_json, stream_mrm_status_json, stream_mrm_state_json,
-    stream_group_echo,
 )
 from ..services.metrics import metrics
 from ..services.droppable_queue import DroppableQueue
@@ -122,10 +120,6 @@ async def diagnostics_websocket(websocket: WebSocket):
 
         conn = app_state.connection
 
-        # Detect agent mode for JSON-native streaming
-        from ..connection.agent import AgentConnection
-        is_agent = isinstance(conn, AgentConnection)
-
         async def _send_items(items):
             await websocket.send_json({
                 "type": "diagnostics",
@@ -149,7 +143,6 @@ async def diagnostics_websocket(websocket: WebSocket):
                     logger.debug(f"[diag] Starting stream: {name}")
                     async for items in coro_factory():
                         await _send_items(items)
-                    # Stream ended normally (topic stopped publishing)
                     logger.debug(f"[diag] Stream ended: {name}, retrying in {retry_delay}s")
                 except asyncio.CancelledError:
                     raise
@@ -157,52 +150,28 @@ async def diagnostics_websocket(websocket: WebSocket):
                     logger.warning(f"[diag] Stream error in {name}: {e}, retrying in {retry_delay}s")
                 await asyncio.sleep(retry_delay)
 
-        if is_agent:
-            tasks = [
-                asyncio.create_task(run_with_retry(
-                    "/diagnostics",
-                    lambda: stream_diagnostics_json(conn),
-                )),
-                asyncio.create_task(run_with_retry(
+        tasks = [
+            asyncio.create_task(run_with_retry(
+                "/diagnostics",
+                lambda: stream_diagnostics_json(conn),
+            )),
+            asyncio.create_task(run_with_retry(
+                "lidar_sync_flag",
+                lambda: stream_bool_topic_json(
+                    conn,
+                    "/sensing/lidar/concatenated/lidar_sync_checker/lidar_sync_flag",
                     "lidar_sync_flag",
-                    lambda: stream_bool_topic_json(
-                        conn,
-                        "/sensing/lidar/concatenated/lidar_sync_checker/lidar_sync_flag",
-                        "lidar_sync_flag",
-                    ),
-                )),
-                asyncio.create_task(run_with_retry(
-                    "mrm_status",
-                    lambda: stream_mrm_status_json(conn),
-                )),
-                asyncio.create_task(run_with_retry(
-                    "mrm_state",
-                    lambda: stream_mrm_state_json(conn),
-                )),
-            ]
-        else:
-            tasks = [
-                asyncio.create_task(run_with_retry(
-                    "/diagnostics",
-                    lambda: stream_diagnostics(conn),
-                )),
-                asyncio.create_task(run_with_retry(
-                    "lidar_sync_flag",
-                    lambda: stream_bool_topic(
-                        conn,
-                        "/sensing/lidar/concatenated/lidar_sync_checker/lidar_sync_flag",
-                        "lidar_sync_flag",
-                    ),
-                )),
-                asyncio.create_task(run_with_retry(
-                    "mrm_status",
-                    lambda: stream_mrm_status(conn),
-                )),
-                asyncio.create_task(run_with_retry(
-                    "mrm_state",
-                    lambda: stream_mrm_state(conn),
-                )),
-            ]
+                ),
+            )),
+            asyncio.create_task(run_with_retry(
+                "mrm_status",
+                lambda: stream_mrm_status_json(conn),
+            )),
+            asyncio.create_task(run_with_retry(
+                "mrm_state",
+                lambda: stream_mrm_state_json(conn),
+            )),
+        ]
 
         # Sentinel: wait for client disconnect
         async def _wait_disconnect():

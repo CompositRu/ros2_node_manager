@@ -1,17 +1,15 @@
 """Agent-based connection via WebSocket to monitoring_agent ROS2 node.
 
-Replaces docker exec calls with JSON-RPC 2.0 over WebSocket.
-All ros2_* methods are overridden to use direct agent API calls.
+Connects to monitoring_agent over WebSocket using JSON-RPC 2.0.
+All ROS2 operations use direct agent API calls.
 Services use subscribe_json() for native JSON streaming (logs, diagnostics, echo).
-exec_stream handles only topic.hz for backward compatibility.
+exec_stream handles only topic.hz.
 """
 
 import asyncio
 import json
 import logging
 import re
-import time
-import uuid
 from typing import TYPE_CHECKING, AsyncIterator, Optional
 
 if TYPE_CHECKING:
@@ -20,9 +18,18 @@ if TYPE_CHECKING:
 import websockets
 from websockets.client import WebSocketClientProtocol
 
-from .base import BaseConnection, ConnectionError, ContainerNotFoundError
-
 logger = logging.getLogger(__name__)
+
+
+class ConnectionError(Exception):
+    """Connection error."""
+    pass
+
+
+class ContainerNotFoundError(ConnectionError):
+    """Container not found or stopped."""
+    pass
+
 
 _JSONRPC = "2.0"
 
@@ -37,21 +44,23 @@ _CHANNEL_QUEUE_SIZES = {
 }
 
 
-class AgentConnection(BaseConnection):
+class AgentConnection:
     """Connection to monitoring_agent ROS2 node via WebSocket."""
 
-    def __init__(self, agent_url: str, **kwargs):
-        # Agent mode doesn't need container/ros_setup, but base class requires them
-        super().__init__(container=kwargs.get('container', ''), **{
-            k: v for k, v in kwargs.items() if k in ('ros_setup', 'ros_workspace')
-        })
+    def __init__(self, agent_url: str):
         self._agent_url = agent_url
         self._ws: Optional[WebSocketClientProtocol] = None
         self._request_id = 0
         self._pending: dict[int, asyncio.Future] = {}
-        self._subscription_queues: dict[str, DroppableQueue] = {}
+        self._subscription_queues: dict[str, 'DroppableQueue'] = {}
         self._reader_task: Optional[asyncio.Task] = None
         self._reconnect_delay = 1.0
+        self._connected = False
+        self.container = ""
+
+    @property
+    def connected(self) -> bool:
+        return self._connected
 
     async def connect(self) -> None:
         """Connect to the monitoring agent WebSocket server."""
@@ -81,12 +90,19 @@ class AgentConnection(BaseConnection):
         if self._ws:
             await self._ws.close()
             self._ws = None
-        # Fail any pending futures
         for fut in self._pending.values():
             if not fut.done():
                 fut.set_exception(ConnectionError('Disconnected'))
         self._pending.clear()
         logger.info('Disconnected from monitoring agent')
+
+    async def cache_ros_env(self) -> None:
+        """No-op: agent handles its own ROS environment."""
+        pass
+
+    async def cleanup_docker_processes(self) -> None:
+        """No-op: agent manages its own processes."""
+        pass
 
     # === Low-level JSON-RPC ===
 
@@ -120,12 +136,7 @@ class AgentConnection(BaseConnection):
             raise ConnectionError('Agent connection lost')
 
     async def _subscribe(self, channel: str, params: dict = None) -> str:
-        """Subscribe to a data channel. Returns subscription ID.
-
-        Queue size depends on channel type: critical channels (logs, diagnostics)
-        get larger buffers, data-heavy channels (echo) get smaller ones to allow
-        controlled drops without blocking critical data delivery.
-        """
+        """Subscribe to a data channel. Returns subscription ID."""
         result = await self._call('subscribe', {
             'channel': channel,
             'params': params or {},
@@ -152,13 +163,12 @@ class AgentConnection(BaseConnection):
         while True:
             try:
                 async for raw in self._ws:
-                    delay = self._reconnect_delay  # reset on successful message
+                    delay = self._reconnect_delay
                     try:
                         msg = json.loads(raw)
                     except json.JSONDecodeError:
                         continue
 
-                    # Response to a request
                     if 'id' in msg and msg['id'] is not None:
                         req_id = msg['id']
                         fut = self._pending.pop(req_id, None)
@@ -171,20 +181,18 @@ class AgentConnection(BaseConnection):
                             else:
                                 fut.set_result(msg.get('result'))
 
-                    # Subscription event
                     elif msg.get('method') == 'event':
                         params = msg.get('params', {})
                         sub_id = params.get('subscription', '')
                         queue = self._subscription_queues.get(sub_id)
                         if queue:
-                            queue.put_nowait(params.get('data'))  # DroppableQueue tracks drops
+                            queue.put_nowait(params.get('data'))
 
             except asyncio.CancelledError:
                 return
             except Exception as e:
                 logger.warning(f'Agent WebSocket connection lost: {e}')
 
-            # Connection lost — fail pending requests and clear subscriptions
             self._connected = False
             for fut in self._pending.values():
                 if not fut.done():
@@ -192,7 +200,6 @@ class AgentConnection(BaseConnection):
             self._pending.clear()
             self._subscription_queues.clear()
 
-            # Auto-reconnect with exponential backoff
             logger.info(f'Reconnecting to agent in {delay:.0f}s...')
             await asyncio.sleep(delay)
             delay = min(delay * 2, max_delay)
@@ -211,27 +218,11 @@ class AgentConnection(BaseConnection):
                 return
             except Exception as e:
                 logger.warning(f'Reconnect failed: {e}')
-                # Loop continues, will retry with increased delay
 
-    # === BaseConnection abstract methods ===
-
-    async def exec_command(self, cmd: str, timeout: float = 30.0) -> str:
-        """Execute a command by translating to agent RPC calls.
-
-        Parses known ros2 CLI patterns and routes to appropriate agent methods.
-        For unknown commands, raises an error since agent doesn't support
-        arbitrary shell execution.
-        """
-        cmd = cmd.strip()
-        return await self._translate_command(cmd, timeout)
+    # === High-level streaming ===
 
     async def subscribe_json(self, channel: str, params: dict = None) -> AsyncIterator[dict]:
-        """Subscribe to an agent channel and yield raw JSON data.
-
-        Unlike exec_stream which converts JSON→YAML for backward compatibility,
-        this method yields the raw dict data from the agent directly.
-        Used by services that can handle JSON natively (LogCollector, DiagnosticsCollector, echo).
-        """
+        """Subscribe to an agent channel and yield raw JSON data."""
         if not self._connected:
             raise ConnectionError('Not connected')
 
@@ -260,16 +251,13 @@ class AgentConnection(BaseConnection):
     async def exec_stream(self, cmd: str) -> AsyncIterator[str]:
         """Translate a streaming ROS2 CLI command to agent subscription.
 
-        Currently only handles 'ros2 topic hz' commands. Other streaming
-        data (logs, diagnostics, echo) uses subscribe_json() directly.
+        Currently only handles 'ros2 topic hz' commands.
         """
         if not self._connected:
             raise ConnectionError('Not connected')
 
         sub_id = None
-
         try:
-            # Parse the command to determine subscription type
             channel, params = self._parse_stream_command(cmd)
             sub_id = await self._subscribe(channel, params)
             queue = self._subscription_queues.get(sub_id)
@@ -280,7 +268,6 @@ class AgentConnection(BaseConnection):
                 except asyncio.TimeoutError:
                     continue
 
-                # Convert agent JSON data to YAML lines for backward compat
                 if channel == 'topic.hz':
                     hz = data.get('hz', 0.0)
                     if hz > 0:
@@ -295,15 +282,12 @@ class AgentConnection(BaseConnection):
             if sub_id:
                 await self._unsubscribe(sub_id)
 
-    async def exec_host_command(self, cmd: str, timeout: float = 15.0) -> str:
-        """Execute command on the host. Not supported in agent mode."""
-        raise ConnectionError('Host commands not supported in agent mode')
+    async def exec_command(self, cmd: str, timeout: float = 30.0) -> str:
+        """Execute a command by translating to agent RPC calls."""
+        cmd = cmd.strip()
+        return await self._translate_command(cmd, timeout)
 
-    async def _kill_docker_pids(self, pids_str: str) -> None:
-        """Not applicable in agent mode — processes are managed by the agent."""
-        pass
-
-    # === Overridden ROS2 CLI wrappers (direct agent calls) ===
+    # === ROS2 API methods ===
 
     async def ros2_node_list(self, timeout: float = 10.0) -> list[str]:
         return await self._call('graph.nodes', timeout=timeout)
@@ -378,69 +362,47 @@ class AgentConnection(BaseConnection):
             return False
 
     async def get_agent_stats(self) -> dict | None:
-        """Get monitoring agent's system stats (CPU, RAM)."""
         try:
             return await self._call('system.stats', timeout=5.0)
         except Exception:
             return None
 
     async def get_agent_resources(self) -> dict | None:
-        """Get container-level resources (CPU, RAM, GPU) for dashboard."""
         try:
             return await self._call('system.resources', timeout=10.0)
         except Exception:
             return None
 
-    # === No-op overrides for agent mode ===
-
-    async def cache_ros_env(self) -> None:
-        """No-op: agent handles its own ROS environment."""
-        pass
-
     def invalidate_services_cache(self) -> None:
-        """No-op: agent manages its own caches."""
         pass
-
-    async def _refresh_services_cache(self) -> None:
-        """No-op: agent manages its own service cache."""
-        self._services_cache = set()
 
     # === Command translation helpers ===
 
     async def _translate_command(self, cmd: str, timeout: float) -> str:
         """Translate a ros2 CLI command string to an agent RPC call."""
-        # ros2 topic list [-t]
         if cmd.startswith('ros2 topic list'):
             if '-t' in cmd:
                 topics = await self.ros2_topic_list(timeout=timeout)
-                return '\n'.join(
-                    f"{t['name']} [{t['type']}]" for t in topics
-                )
+                return '\n'.join(f"{t['name']} [{t['type']}]" for t in topics)
             else:
                 topics = await self.ros2_topic_list(timeout=timeout)
                 return '\n'.join(t['name'] for t in topics)
 
-        # ros2 node list
         if cmd.startswith('ros2 node list'):
             nodes = await self.ros2_node_list(timeout=timeout)
             return '\n'.join(nodes)
 
-        # ros2 service list [-t]
         if cmd.startswith('ros2 service list'):
             if '-t' in cmd:
                 services = await self.ros2_service_list_typed()
-                return '\n'.join(
-                    f"{s['name']} [{s['type']}]" for s in services
-                )
+                return '\n'.join(f"{s['name']} [{s['type']}]" for s in services)
             else:
                 services = await self.ros2_service_list(timeout=timeout)
                 return '\n'.join(services)
 
-        # ros2 topic echo {topic} --once
         m = re.match(r'ros2 topic echo\s+(\S+).*--once', cmd)
         if m:
             topic = m.group(1)
-            # Route well-known topics to dedicated channels
             if topic == '/api/fail_safe/mrm_state':
                 channel, params = 'mrm_state', {}
             else:
@@ -453,33 +415,23 @@ class AgentConnection(BaseConnection):
             finally:
                 await self._unsubscribe(sub_id)
 
-        # ros2 node info {node}
         m = re.match(r'ros2 node info\s+(\S+)', cmd)
         if m:
             info = await self.ros2_node_info(m.group(1))
             return self._format_node_info(info)
 
-        # ros2 lifecycle get {node}
         m = re.match(r'ros2 lifecycle get\s+(\S+)', cmd)
         if m:
             state = await self.ros2_lifecycle_get_state(m.group(1))
             return state or 'unknown'
 
-        # Fallback: unsupported command
-        raise ConnectionError(
-            f'Command not supported in agent mode: {cmd[:80]}'
-        )
+        raise ConnectionError(f'Command not supported: {cmd[:80]}')
 
     def _parse_stream_command(self, cmd: str) -> tuple[str, dict]:
-        """Parse a ros2 streaming command into (channel, params)."""
-        # ros2 topic hz {topic}
         m = re.match(r'ros2 topic hz\s+(\S+)', cmd)
         if m:
             return 'topic.hz', {'topic': m.group(1)}
-
         raise ConnectionError(f'Cannot parse stream command: {cmd[:80]}')
-
-    # === Output formatting helpers ===
 
     @staticmethod
     def _json_to_yaml_lines(data, indent: int = 0) -> list[str]:
@@ -502,7 +454,6 @@ class AgentConnection(BaseConnection):
 
     @staticmethod
     def _list_to_yaml_lines(items: list, indent: int) -> list[str]:
-        """Convert a list to YAML-like lines."""
         prefix = '  ' * indent
         lines = []
         for item in items:
@@ -525,9 +476,7 @@ class AgentConnection(BaseConnection):
 
     @staticmethod
     def _format_node_info(info: dict) -> str:
-        """Format node info dict as ros2 node info output."""
-        lines = []
-        lines.append('  Subscribers:')
+        lines = ['  Subscribers:']
         for t in info.get('subscribers', []):
             lines.append(f'    {t}')
         lines.append('  Publishers:')

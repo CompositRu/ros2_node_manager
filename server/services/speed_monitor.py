@@ -5,7 +5,7 @@ import logging
 import math
 from typing import Optional
 
-from ..connection import BaseConnection
+from ..connection import AgentConnection
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class SpeedMonitor:
 
     TOPIC = "/localization/kinematic_state"
 
-    def __init__(self, connection: BaseConnection):
+    def __init__(self, connection: AgentConnection):
         self.conn = connection
         self._running = False
         self._task: Optional[asyncio.Task] = None
@@ -42,28 +42,23 @@ class SpeedMonitor:
         self.speed_kmh = None
 
     async def _stream_loop(self) -> None:
-        """Stream topic and parse speed from YAML output."""
+        """Stream topic via subscribe_json and parse speed."""
         while self._running:
             try:
-                cmd = (
-                    f"ros2 topic echo {self.TOPIC} "
-                    "--no-arr --field twist.twist.linear"
-                )
-                vals = {}
-                async for line in self.conn.exec_stream(cmd):
+                async for data in self.conn.subscribe_json(
+                    'topic.echo',
+                    {'topic': self.TOPIC, 'no_arr': True, 'field': 'twist.twist.linear'},
+                ):
                     if not self._running:
                         break
-                    line = line.strip()
-                    if line == "---":
-                        if "x" in vals and "y" in vals:
-                            speed_ms = math.sqrt(vals["x"] ** 2 + vals["y"] ** 2)
-                            self.speed_kmh = round(speed_ms * 3.6, 1)
-                        vals = {}
-                    elif ":" in line:
-                        key, val = line.split(":", 1)
+                    inner = data.get('data', {})
+                    if isinstance(inner, dict):
+                        x = inner.get('x', 0.0)
+                        y = inner.get('y', 0.0)
                         try:
-                            vals[key.strip()] = float(val.strip())
-                        except ValueError:
+                            speed_ms = math.sqrt(float(x) ** 2 + float(y) ** 2)
+                            self.speed_kmh = round(speed_ms * 3.6, 1)
+                        except (TypeError, ValueError):
                             pass
             except asyncio.CancelledError:
                 break

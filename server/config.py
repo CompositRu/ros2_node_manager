@@ -1,13 +1,12 @@
 """Configuration loader for Tram Monitoring System."""
 
-import os
 from pathlib import Path
 from typing import Optional
 
 import yaml
 from pydantic_settings import BaseSettings
 
-from .models import ServerConfig, ServerType, AlertConfig, TopicGroupsConfig
+from .models import ServerConfig, AlertConfig, TopicGroupsConfig
 
 
 class Settings(BaseSettings):
@@ -37,30 +36,23 @@ settings = Settings()
 
 def load_servers_config() -> list[ServerConfig]:
     """Load servers configuration from YAML file."""
-    config_file = settings.config_dir / "servers.yaml"
-    
+    config_file = settings.config_dir / "config.yaml"
+
     if not config_file.exists():
-        # Return default local config if no file
         return [
             ServerConfig(
-                id="local",
-                name="Local Docker",
-                type=ServerType.LOCAL,
-                container="tram_autoware"
+                id="local-agent",
+                name="Local Agent",
             )
         ]
-    
+
     with open(config_file) as f:
         data = yaml.safe_load(f)
-    
+
     servers = []
     for srv in data.get("servers", []):
-        # Handle ssh_key path expansion
-        if "ssh_key" in srv and srv["ssh_key"]:
-            srv["ssh_key"] = os.path.expanduser(srv["ssh_key"])
-        
         servers.append(ServerConfig(**srv))
-    
+
     return servers
 
 
@@ -83,16 +75,6 @@ def load_alert_config() -> AlertConfig:
             if data:
                 return AlertConfig(**data)
     
-    # Fallback: читаем из servers.yaml
-    servers_file = settings.config_dir / "servers.yaml"
-    if servers_file.exists():
-        with open(servers_file) as f:
-            data = yaml.safe_load(f)
-            alerts_data = data.get("alerts", {})
-            if alerts_data:
-                return AlertConfig(**alerts_data)
-    
-    # Default config
     return AlertConfig()
 
 

@@ -7,7 +7,7 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from typing import Optional, Callable
 
-from ..connection import BaseConnection, ConnectionError
+from ..connection import AgentConnection, ConnectionError
 from ..models import LogMessage
 from .droppable_queue import DroppableQueue
 
@@ -24,7 +24,7 @@ class LogCollector:
     - add_callback(fn)      — HistoryStore, AlertService (sync callbacks)
     """
 
-    def __init__(self, connection: BaseConnection):
+    def __init__(self, connection: AgentConnection):
         self.conn = connection
         self._running = False
         self._task: Optional[asyncio.Task] = None
@@ -142,51 +142,7 @@ class LogCollector:
     # ─────────────────────────────────────────────────────────────────
 
     async def _collect_loop(self) -> None:
-        """Main loop: always streams /rosout, dispatches to all consumers."""
-        # In agent mode, use direct JSON subscription (no YAML round-trip)
-        from ..connection.agent import AgentConnection
-        if isinstance(self.conn, AgentConnection):
-            return await self._collect_loop_json()
-
-        cmd = "ros2 topic echo /rosout --no-arr --qos-reliability best_effort --qos-history keep_last --qos-depth 1000"
-
-        while self._running:
-            try:
-                logger.info("Starting /rosout stream...")
-                buffer = []
-                msg_count = 0
-                async for line in self.conn.exec_stream(cmd):
-                    if not self._running:
-                        break
-
-                    buffer.append(line)
-
-                    if line.strip() == "---":
-                        msg = self._parse_rosout_message("\n".join(buffer))
-                        buffer = []
-                        if msg:
-                            msg_count += 1
-                            if msg_count <= 3:
-                                logger.debug(f"[logs] Message #{msg_count}: [{msg.level}] {msg.node_name}: {msg.message[:80]}")
-                            elif msg_count == 4:
-                                logger.debug("[logs] Stream working, suppressing further debug output")
-                            self._dispatch(msg)
-
-                logger.info(f"/rosout stream ended after {msg_count} messages, retrying in 5s...")
-
-            except ConnectionError as e:
-                logger.warning(f"Connection error: {e}")
-                if self._running:
-                    await asyncio.sleep(5)
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"Error: {e}")
-                if self._running:
-                    await asyncio.sleep(5)
-
-    async def _collect_loop_json(self) -> None:
-        """Agent mode: subscribe to JSON log stream directly, skip YAML."""
+        """Main loop: subscribe to JSON log stream from agent."""
         while self._running:
             try:
                 logger.info("Starting /rosout JSON stream (agent mode)...")
@@ -283,38 +239,3 @@ class LogCollector:
                         except asyncio.QueueFull:
                             pass
 
-    # ─────────────────────────────────────────────────────────────────
-    # Parsing
-    # ─────────────────────────────────────────────────────────────────
-
-    def _parse_rosout_message(self, text: str) -> Optional[LogMessage]:
-        """Parse a rosout YAML message into LogMessage."""
-        try:
-            stamp_match = re.search(r"sec:\s*(\d+)", text)
-            nanosec_match = re.search(r"nanosec:\s*(\d+)", text)
-            level_match = re.search(r"level:\s*(\d+)", text)
-            name_match = re.search(r"name:\s*['\"]?([^'\"}\n]+)['\"]?", text)
-            msg_match = (
-                re.search(r"msg:\s*'([^']*)'", text)
-                or re.search(r'msg:\s*"([^"]*)"', text)
-                or re.search(r"msg:\s*([^\n]+)", text)
-            )
-
-            if not all([stamp_match, level_match, name_match, msg_match]):
-                return None
-
-            sec = int(stamp_match.group(1))
-            nanosec = int(nanosec_match.group(1)) if nanosec_match else 0
-            timestamp = datetime.fromtimestamp(sec + nanosec / 1e9)
-            level = self._level_map.get(int(level_match.group(1)), "INFO")
-            node_name = name_match.group(1).strip()
-            message = msg_match.group(1).strip()
-
-            return LogMessage(
-                timestamp=timestamp,
-                level=level,
-                node_name=node_name,
-                message=message,
-            )
-        except Exception:
-            return None

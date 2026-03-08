@@ -5,24 +5,20 @@ import { useState } from 'react';
  */
 export function ServerSelector({ servers, currentServer, connected, onConnect, onDisconnect, loading }) {
   const [selectedId, setSelectedId] = useState(currentServer?.id || '');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  
+
   const handleConnect = async () => {
     if (!selectedId) return;
     try {
-      await onConnect(selectedId, password || null);
-      setPassword('');
-      setShowPassword(false);
+      await onConnect(selectedId);
     } catch (err) {
       // Error handled in parent
     }
   };
-  
+
   return (
     <div className="flex items-center gap-3">
       <label className="text-gray-400 text-sm">Server:</label>
-      
+
       <select
         value={selectedId}
         onChange={(e) => setSelectedId(e.target.value)}
@@ -36,26 +32,7 @@ export function ServerSelector({ servers, currentServer, connected, onConnect, o
           </option>
         ))}
       </select>
-      
-      {/* Password input for SSH servers */}
-      {selectedId && servers.find(s => s.id === selectedId)?.type === 'ssh' && (
-        <div className="flex items-center gap-2">
-          <input
-            type={showPassword ? 'text' : 'password'}
-            placeholder="Password (optional)"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="bg-gray-700 text-white px-3 py-1.5 rounded border border-gray-600 focus:outline-none focus:border-blue-500 w-40"
-          />
-          <button
-            onClick={() => setShowPassword(!showPassword)}
-            className="text-gray-400 hover:text-white"
-          >
-            {showPassword ? '👁️' : '👁️‍🗨️'}
-          </button>
-        </div>
-      )}
-      
+
       {connected ? (
         <button
           onClick={onDisconnect}
@@ -73,7 +50,7 @@ export function ServerSelector({ servers, currentServer, connected, onConnect, o
           {loading ? 'Connecting...' : 'Connect'}
         </button>
       )}
-      
+
       {connected && currentServer && (
         <span className="text-green-400 text-sm" title={`Connected to ${currentServer.name}`}>
           ●

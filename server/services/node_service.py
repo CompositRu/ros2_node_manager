@@ -8,7 +8,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from ..connection import BaseConnection, ConnectionError
+from ..connection import AgentConnection, ConnectionError
 from ..state import StatePersister
 from ..models import (
     NodeInfo, NodeType, NodeStatus, LifecycleState,
@@ -38,7 +38,7 @@ class NodeService:
     _BASE_INTERVAL = 3.0   # min seconds between refreshes
     _MAX_INTERVAL = 60.0   # max backoff on repeated failures
 
-    def __init__(self, connection: BaseConnection, persister: StatePersister):
+    def __init__(self, connection: AgentConnection, persister: StatePersister):
         self.conn = connection
         self.persister = persister
         self._type_check_tasks: dict[str, asyncio.Task] = {}

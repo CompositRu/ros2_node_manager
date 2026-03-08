@@ -9,7 +9,7 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
-from ..connection import BaseConnection
+from ..connection import AgentConnection
 from ..models import Alert, AlertType, AlertSeverity, AlertConfig, NodeStatus, LogMessage
 
 
@@ -24,7 +24,7 @@ class AlertService:
     - Мониторинг: падение нод, пропажа топиков, паттерны в логах
     """
 
-    def __init__(self, connection: BaseConnection, config: AlertConfig):
+    def __init__(self, connection: AgentConnection, config: AlertConfig):
         self.conn = connection
         self.config = config
 

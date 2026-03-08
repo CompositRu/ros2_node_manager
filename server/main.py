@@ -42,9 +42,8 @@ _uv_access = logging.getLogger("uvicorn.access")
 _uv_access.handlers.clear()
 _uv_access.propagate = False
 
-# from .config import settings, load_servers_config, get_server_by_id
-from .models import ServerConfig, ServerType
-from .connection import BaseConnection, LocalDockerConnection, SSHDockerConnection, AgentConnection, ConnectionError, ContainerNotFoundError
+from .models import ServerConfig
+from .connection import AgentConnection, ConnectionError, ContainerNotFoundError
 from .state import StatePersister
 # from .services import NodeServicee
 from .routers import servers_router, nodes_router, websocket_router, debug_router, topics_router, history_router, dashboard_router, services_router
@@ -56,7 +55,7 @@ from fastapi.responses import FileResponse, JSONResponse
 @dataclass
 class AppState:
     """Global application state."""
-    connection: Optional[BaseConnection] = None
+    connection: Optional[AgentConnection] = None
     current_server_id: Optional[str] = None
     node_service: Optional[NodeService] = None
     persister: Optional[StatePersister] = None
@@ -72,14 +71,10 @@ class AppState:
 app_state = AppState()
 
 
-async def connect_to_server(
-    server: ServerConfig,
-    # servers: dict[str, ServerConfig],
-    password_override: Optional[str] = None
-) -> None:
+async def connect_to_server(server: ServerConfig) -> None:
     """Connect to a server and initialize services."""
     global app_state
-    
+
     # Stop previous services if running
     if app_state.log_collector:
         await app_state.log_collector.stop()
@@ -100,29 +95,9 @@ async def connect_to_server(
     # Disconnect from current server if any
     if app_state.connection:
         await app_state.connection.disconnect()
-    
-    # Create connection based on server type
-    if server.type == ServerType.AGENT:
-        if not server.agent_url:
-            raise ConnectionError("Agent server requires 'agent_url' in config")
-        connection = AgentConnection(agent_url=server.agent_url)
-    elif server.type == ServerType.LOCAL:
-        connection = LocalDockerConnection(server.container,
-                                           ros_workspace=server.ros_workspace)
-    else:
-        connection = SSHDockerConnection(
-            container=server.container,
-            host=server.host,
-            user=server.user,
-            port=server.port,
-            ssh_key=server.ssh_key,
-            password=password_override or server.password,
-            ros_workspace=server.ros_workspace,
-        )
 
-    # Connect and cache ROS env for fast subsequent commands
+    connection = AgentConnection(agent_url=server.agent_url)
     await connection.connect()
-    await connection.cache_ros_env()
 
     # Initialize persister and service
     persister = StatePersister(server.id)

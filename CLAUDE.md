@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Tram Monitoring System** — веб-интерфейс для мониторинга ROS2 нод в Docker контейнерах на автономных трамваях. Основной фокус — мониторинг и диагностика, а не управление.
 
-Подключается к Docker контейнеру с ROS2 через: локальный docker exec, SSH, или **monitoring_agent** (WebSocket).
+Подключается к Docker контейнеру с ROS2 через **monitoring_agent** (WebSocket JSON-RPC).
 
 Связанный проект: **monitoring_agent** — ROS2 нода внутри Docker, код в `~/tram.autoware/src/system/monitoring_agent/`.
 
@@ -39,7 +39,7 @@ Frontend proxies API calls to backend (port 8080).
 
 ## Configuration
 
-- `config/servers.yaml` — серверы (type: local/ssh/agent)
+- `config/config.yaml` — серверы (agent_url для подключения к monitoring_agent)
 - `config/topic_groups.yaml` — группы топиков для Hz/echo
 - `config/alerts.yaml` — правила алертов
 - Первый сервер подключается автоматически. Состояние нод: `data/{server_id}.json`

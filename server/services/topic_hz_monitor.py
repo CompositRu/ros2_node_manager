@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Optional
 
-from ..connection.base import BaseConnection
+from ..connection import AgentConnection
 from ..models import TopicGroup
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ _HZ_PATTERN = re.compile(r"average rate:\s*([\d.]+)")
 class TopicHzMonitor:
     """On-demand Hz monitor for configured topic groups."""
 
-    def __init__(self, connection: BaseConnection, groups: list[TopicGroup]):
+    def __init__(self, connection: AgentConnection, groups: list[TopicGroup]):
         self._connection = connection
         self._groups = groups
         self._groups_by_id: dict[str, TopicGroup] = {g.id: g for g in groups}

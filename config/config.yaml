@@ -1,0 +1,8 @@
+# Tram Monitoring System - Configuration
+#
+# Connects to monitoring_agent (ROS2 node) via WebSocket.
+
+servers:
+  - id: local-agent
+    name: "Local Agent"
+    agent_url: "ws://localhost:9090"

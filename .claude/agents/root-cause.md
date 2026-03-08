@@ -33,7 +33,7 @@ model: opus
 
 ### Путь запроса (REST)
 ```
-Client → FastAPI Router → Service → Connection (docker exec / SSH / agent) → ROS2
+Client → FastAPI Router → Service → Connection (agent) → ROS2
 ```
 
 ### Путь запроса (WebSocket)
