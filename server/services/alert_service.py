@@ -227,10 +227,11 @@ class AlertService:
             details=details or {}
         )
 
-        # Persist to history store
+        # Persist to history store (tracked task with error callback)
         if self.history_store:
             try:
-                asyncio.ensure_future(self.history_store.store_alert(alert))
+                task = asyncio.ensure_future(self.history_store.store_alert(alert))
+                task.add_done_callback(self._on_store_alert_done)
             except Exception as e:
                 logger.error(f"Failed to persist alert: {e}")
 
@@ -255,6 +256,33 @@ class AlertService:
         logger.info(f"Alert: [{severity.value}] {title}: {message}")
         return True
 
+    @staticmethod
+    def _on_store_alert_done(task: asyncio.Task) -> None:
+        """Log errors from store_alert tasks instead of losing them silently."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error(f"Failed to persist alert to DB: {exc}")
+
+    def _cleanup_cooldowns(self) -> None:
+        """Remove expired cooldown entries to prevent unbounded dict growth."""
+        now = datetime.now()
+        cutoff = timedelta(seconds=self.config.cooldown_seconds * 2)
+        expired = [k for k, v in self._alert_cooldowns.items() if (now - v) > cutoff]
+        for k in expired:
+            del self._alert_cooldowns[k]
+
+    def _cleanup_node_statuses(self) -> None:
+        """Remove node statuses for nodes not seen in current active set."""
+        if not self.node_service:
+            return
+        response = self.node_service.get_cached_nodes()
+        active_names = {n.name for n in response.nodes}
+        stale = [k for k in self._node_statuses if k not in active_names]
+        for k in stale:
+            del self._node_statuses[k]
+
     # ─────────────────────────────────────────────────────────────────
     # Background monitoring tasks
     # ─────────────────────────────────────────────────────────────────
@@ -264,6 +292,7 @@ class AlertService:
         Background task to monitor node statuses.
         Uses NodeService cached data instead of calling ros2 node list directly.
         """
+        _iterations = 0
         while self._running:
             try:
                 # Use NodeService cached node list (no extra ros2 CLI call)
@@ -292,13 +321,22 @@ class AlertService:
                         # New node, just track it
                         self._node_statuses[node_name] = NodeStatus.ACTIVE
 
+                # Periodic cleanup of stale dicts (~every 5 min)
+                _iterations += 1
+                if _iterations % 60 == 0:
+                    self._cleanup_cooldowns()
+                    self._cleanup_node_statuses()
+
                 await asyncio.sleep(5)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in node monitoring: {e}")
-                await asyncio.sleep(5)
+                if self._running and not self.conn.connected:
+                    await self.conn.wait_connected()
+                if self._running:
+                    await asyncio.sleep(5)
 
     async def _monitor_missing_topics(self) -> None:
         """Monitor for missing important topics. Backs off on repeated failures."""
@@ -349,8 +387,13 @@ class AlertService:
                 break
             except Exception as e:
                 logger.error(f"Error monitoring topics: {e}")
-                interval = min(interval * 2, 120)  # backoff: 10→20→40→80→120s max
-                await asyncio.sleep(interval)
+                if self._running and not self.conn.connected:
+                    await self.conn.wait_connected()
+                    interval = 10
+                else:
+                    interval = min(interval * 2, 120)  # backoff: 10→20→40→80→120s max
+                if self._running:
+                    await asyncio.sleep(interval)
 
     async def _monitor_topic_values(self) -> None:
         """Monitor specific topics for alert values."""
@@ -368,6 +411,7 @@ class AlertService:
         except asyncio.CancelledError:
             for t in topic_tasks:
                 t.cancel()
+            await asyncio.gather(*topic_tasks, return_exceptions=True)
             raise
 
     async def _monitor_single_topic(self, topic_config: dict) -> None:
@@ -417,4 +461,7 @@ class AlertService:
             except asyncio.CancelledError:
                 break
             except Exception:
-                await asyncio.sleep(5)
+                if self._running and not self.conn.connected:
+                    await self.conn.wait_connected()
+                if self._running:
+                    await asyncio.sleep(2)

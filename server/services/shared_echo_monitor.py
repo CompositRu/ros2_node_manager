@@ -98,10 +98,12 @@ class SharedEchoMonitor:
                 if self._running and topic in self._topic_subscribers:
                     logger.error(f"SharedEchoMonitor: error streaming {topic}: {e}")
 
-            if self._running and topic in self._topic_subscribers:
-                await asyncio.sleep(retry_delay)
-            else:
+            if not self._running or topic not in self._topic_subscribers:
                 break
+            if not self._connection.connected:
+                await self._connection.wait_connected()
+            if self._running and topic in self._topic_subscribers:
+                await asyncio.sleep(1)
 
     def _broadcast(self, topic: str, message: dict) -> None:
         message = self._maybe_truncate(message)

@@ -192,10 +192,12 @@ class SharedDiagnosticsCollector:
                 if self._running:
                     logger.error(f"[shared-diag] diagnostics stream error: {e}")
 
-            if self._running:
-                await asyncio.sleep(retry_delay)
-            else:
+            if not self._running:
                 break
+            if not self._connection.connected:
+                await self._connection.wait_connected()
+            if self._running:
+                await asyncio.sleep(1)
 
     async def _stream_lidar_sync(self) -> None:
         """Stream lidar_sync_flag Bool topic -> DiagnosticItem."""
@@ -221,10 +223,12 @@ class SharedDiagnosticsCollector:
                 if self._running:
                     logger.error(f"[shared-diag] lidar_sync_flag stream error: {e}")
 
-            if self._running:
-                await asyncio.sleep(retry_delay)
-            else:
+            if not self._running:
                 break
+            if not self._connection.connected:
+                await self._connection.wait_connected()
+            if self._running:
+                await asyncio.sleep(1)
 
     async def _stream_mrm_status(self) -> None:
         """Stream /display/mrm_status topic -> DiagnosticItem."""
@@ -254,10 +258,12 @@ class SharedDiagnosticsCollector:
                 if self._running:
                     logger.error(f"[shared-diag] mrm_status stream error: {e}")
 
-            if self._running:
-                await asyncio.sleep(retry_delay)
-            else:
+            if not self._running:
                 break
+            if not self._connection.connected:
+                await self._connection.wait_connected()
+            if self._running:
+                await asyncio.sleep(1)
 
     async def _stream_mrm_state(self) -> None:
         """Stream mrm_state channel -> DiagnosticItem."""
@@ -291,7 +297,9 @@ class SharedDiagnosticsCollector:
                 if self._running:
                     logger.error(f"[shared-diag] mrm_state stream error: {e}")
 
-            if self._running:
-                await asyncio.sleep(retry_delay)
-            else:
+            if not self._running:
                 break
+            if not self._connection.connected:
+                await self._connection.wait_connected()
+            if self._running:
+                await asyncio.sleep(1)

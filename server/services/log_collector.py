@@ -194,14 +194,17 @@ class LogCollector:
 
             except ConnectionError as e:
                 logger.warning(f"Connection error: {e}")
-                if self._running:
-                    await asyncio.sleep(5)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.error(f"Error in JSON log stream: {e}")
-                if self._running:
-                    await asyncio.sleep(5)
+
+            if not self._running:
+                break
+            if not self.conn.connected:
+                await self.conn.wait_connected()
+            if self._running:
+                await asyncio.sleep(1)
 
     def _parse_json_log(self, data: dict) -> Optional[LogMessage]:
         """Convert agent JSON log dict directly to LogMessage."""

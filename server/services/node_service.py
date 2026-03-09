@@ -77,12 +77,6 @@ class NodeService:
         self._last_refresh = now
         running_set = set(running_nodes)
 
-        # Refresh services cache once for all type checks (with reduced timeout)
-        try:
-            await self.conn._refresh_services_cache()
-        except Exception:
-            pass
-
         # Track new nodes that need type checking
         new_nodes = []
 
@@ -127,8 +121,11 @@ class NodeService:
 
     def _schedule_lifecycle_state_check(self, node_name: str) -> None:
         """Schedule background task to get lifecycle state."""
+        if node_name in self._type_check_tasks:
+            return  # already in progress
         task = asyncio.create_task(self._get_lifecycle_state(node_name))
-        # Don't track these tasks, just fire and forget
+        self._type_check_tasks[node_name] = task
+        task.add_done_callback(lambda t, n=node_name: self._type_check_tasks.pop(n, None))
 
     async def _get_lifecycle_state(self, node_name: str) -> None:
         """Get lifecycle state for a node."""

@@ -2,12 +2,16 @@
 
 import json
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
 from ..models import NodeInfo, NodeState, NodeType, NodeStatus
 from ..config import settings
+
+# Inactive nodes older than this are pruned on save
+_INACTIVE_TTL = timedelta(hours=24)
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +53,13 @@ class StatePersister:
         return self._state
     
     def save(self) -> None:
-        """Save state to file."""
+        """Save state to file. Prunes stale inactive nodes before writing."""
         if not self._state:
             return
-        
+
+        # Remove inactive nodes not seen for >24h
+        self.prune_inactive()
+
         # Ensure directory exists
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
         
@@ -69,8 +76,11 @@ class StatePersister:
             node_dict["last_seen"] = node.last_seen.isoformat()
             data["nodes"][name] = node_dict
         
-        with open(self.file_path, 'w') as f:
+        # Atomic write: write to temp file, then rename
+        tmp_path = self.file_path.with_suffix('.tmp')
+        with open(tmp_path, 'w') as f:
             json.dump(data, f, indent=2, default=str)
+        os.replace(tmp_path, self.file_path)
     
     def get_state(self) -> NodeState:
         """Get current state."""
@@ -145,6 +155,24 @@ class StatePersister:
         
         return total, active, inactive
     
+    def prune_inactive(self) -> int:
+        """Remove inactive nodes not seen for more than _INACTIVE_TTL. Returns count removed."""
+        if not self._state:
+            return 0
+
+        now = datetime.now()
+        to_remove = [
+            name for name, node in self._state.nodes.items()
+            if node.status == NodeStatus.INACTIVE
+            and (now - node.last_seen) > _INACTIVE_TTL
+        ]
+        for name in to_remove:
+            del self._state.nodes[name]
+
+        if to_remove:
+            logger.info(f"Pruned {len(to_remove)} inactive nodes (not seen for >{_INACTIVE_TTL})")
+        return len(to_remove)
+
     def _create_empty_state(self) -> NodeState:
         """Create empty state."""
         return NodeState(

@@ -65,5 +65,10 @@ class SpeedMonitor:
             except Exception as e:
                 logger.error(f"SpeedMonitor: stream error: {e}")
                 self.speed_kmh = None
-                if self._running:
-                    await asyncio.sleep(5)
+
+            if not self._running:
+                break
+            if not self.conn.connected:
+                await self.conn.wait_connected()
+            if self._running:
+                await asyncio.sleep(1)

@@ -90,7 +90,8 @@ class SharedNodeStatusBroadcaster:
                         # Fire-and-forget: disconnect_server() will call stop() on us,
                         # so we must not await it directly (would deadlock).
                         if self._disconnect_callback:
-                            asyncio.create_task(self._disconnect_callback())
+                            task = asyncio.create_task(self._disconnect_callback())
+                            task.add_done_callback(self._on_disconnect_done)
                         self._running = False
                         break
                 else:
@@ -108,6 +109,15 @@ class SharedNodeStatusBroadcaster:
                 if not self._running:
                     break
                 await asyncio.sleep(0.5)
+
+    @staticmethod
+    def _on_disconnect_done(task: asyncio.Task) -> None:
+        """Log errors from disconnect callback instead of losing them."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error(f"Error in disconnect callback: {exc}")
 
     def _broadcast(self, message: dict) -> None:
         for queue in list(self._subscribers):

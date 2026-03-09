@@ -20,6 +20,7 @@ MAX_ALERTS = 10_000
 RETENTION_CHECK_INTERVAL = 100  # check every N inserts
 LOG_FLUSH_INTERVAL = 1.0  # seconds
 LOG_FLUSH_BATCH = 50  # flush after N buffered logs
+LOG_BUFFER_MAX = 5000  # hard cap to prevent memory growth under burst
 
 # Log level priorities (higher = more severe)
 LOG_LEVEL_PRIORITY = {
@@ -42,6 +43,7 @@ class HistoryStore:
         self._db: Optional[aiosqlite.Connection] = None
         self._running = False
         self._flush_task: Optional[asyncio.Task] = None
+        self._vacuum_task: Optional[asyncio.Task] = None
 
         # Batched log writes
         self._log_buffer: list[LogMessage] = []
@@ -86,19 +88,22 @@ class HistoryStore:
         await self._db.commit()
         self._running = True
         self._flush_task = asyncio.create_task(self._periodic_flush())
+        self._vacuum_task = asyncio.create_task(self._daily_vacuum())
         logger.info(f"History store initialized: {self.db_path} (min_log_level={self.min_log_level})")
 
     async def close(self) -> None:
         """Stop background tasks and close DB."""
         self._running = False
 
-        if self._flush_task and not self._flush_task.done():
-            self._flush_task.cancel()
-            try:
-                await self._flush_task
-            except asyncio.CancelledError:
-                pass
-            self._flush_task = None
+        for task_attr in ('_flush_task', '_vacuum_task'):
+            task = getattr(self, task_attr, None)
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                setattr(self, task_attr, None)
 
         # Flush remaining logs
         await self._flush_log_buffer()
@@ -118,9 +123,10 @@ class HistoryStore:
         if level_priority < self._min_level_priority:
             return
 
+        if len(self._log_buffer) >= LOG_BUFFER_MAX:
+            # Drop oldest under burst to prevent unbounded memory growth
+            self._log_buffer = self._log_buffer[-(LOG_BUFFER_MAX // 2):]
         self._log_buffer.append(log_msg)
-        if len(self._log_buffer) >= LOG_FLUSH_BATCH:
-            asyncio.ensure_future(self._flush_log_buffer())
 
     async def _periodic_flush(self) -> None:
         """Flush log buffer periodically."""
@@ -154,6 +160,20 @@ class HistoryStore:
                 await self._enforce_log_retention()
         except Exception as e:
             logger.error(f"History flush DB error: {e}")
+
+    async def _daily_vacuum(self) -> None:
+        """Run VACUUM once per day to reclaim disk space after retention deletes."""
+        _VACUUM_INTERVAL = 24 * 3600  # 24 hours
+        while self._running:
+            try:
+                await asyncio.sleep(_VACUUM_INTERVAL)
+                if self._db:
+                    await self._db.execute("VACUUM")
+                    logger.info("SQLite VACUUM completed")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"SQLite VACUUM error: {e}")
 
     # ─────────────────────────────────────────────────────────────────
     # Write: alerts

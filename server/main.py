@@ -1,6 +1,7 @@
 """Tram Monitoring System - Main Application."""
 
 import logging
+from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,13 +19,31 @@ from fastapi.responses import FileResponse
 _LOG_DIR = Path(__file__).parent.parent / "logs"
 _LOG_DIR.mkdir(exist_ok=True)
 
+
+def _cleanup_old_logs(max_age_days: int = 7) -> None:
+    """Remove rotated log files older than max_age_days at startup."""
+    import time
+    cutoff = time.time() - max_age_days * 86400
+    for f in _LOG_DIR.glob("*.log.*"):  # rotated files: app.log.1, app.log.2, etc.
+        try:
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+                print(f"Removed old log: {f.name}")
+        except OSError:
+            pass
+
+
+_cleanup_old_logs()
+
 _log_formatter = logging.Formatter(
     "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-# Main app log
-_file_handler = logging.FileHandler(_LOG_DIR / "app.log", mode="w", encoding="utf-8")
+# Main app log (10 MB per file, 3 backups = max 40 MB)
+_file_handler = RotatingFileHandler(
+    _LOG_DIR / "app.log", maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"
+)
 _file_handler.setLevel(logging.DEBUG)
 _file_handler.setFormatter(_log_formatter)
 
@@ -37,7 +56,9 @@ logging.root.addHandler(_console_handler)
 logging.root.setLevel(logging.INFO)
 
 # Agent connection log — separate file, no console
-_agent_handler = logging.FileHandler(_LOG_DIR / "agent.log", mode="w", encoding="utf-8")
+_agent_handler = RotatingFileHandler(
+    _LOG_DIR / "agent.log", maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8"
+)
 _agent_handler.setLevel(logging.DEBUG)
 _agent_handler.setFormatter(_log_formatter)
 _agent_logger = logging.getLogger("server.connection.agent")
@@ -45,7 +66,9 @@ _agent_logger.addHandler(_agent_handler)
 _agent_logger.propagate = False  # don't duplicate into app.log
 
 # Metrics log — separate file for observability data
-_metrics_handler = logging.FileHandler(_LOG_DIR / "metrics.log", mode="w", encoding="utf-8")
+_metrics_handler = RotatingFileHandler(
+    _LOG_DIR / "metrics.log", maxBytes=5 * 1024 * 1024, backupCount=2, encoding="utf-8"
+)
 _metrics_handler.setLevel(logging.DEBUG)
 _metrics_handler.setFormatter(_log_formatter)
 _metrics_logger = logging.getLogger("server.services.metrics_logger")

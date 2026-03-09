@@ -57,6 +57,7 @@ class AgentConnection:
         self._reconnect_delay = 1.0
         self._connected = False
         self._disconnect_event = asyncio.Event()
+        self._connect_event = asyncio.Event()
         self.container = ""
 
     @property
@@ -74,15 +75,22 @@ class AgentConnection:
             )
             self._connected = True
             self._disconnect_event.clear()
+            self._connect_event.set()
             self._reader_task = asyncio.create_task(self._reader_loop())
             logger.info(f'Connected to monitoring agent at {self._agent_url}')
         except Exception as e:
             self._connected = False
+            self._connect_event.clear()
             raise ConnectionError(f'Failed to connect to agent at {self._agent_url}: {e}')
+
+    async def wait_connected(self) -> None:
+        """Wait until the connection is (re)established."""
+        await self._connect_event.wait()
 
     async def disconnect(self) -> None:
         """Close WebSocket connection."""
         self._connected = False
+        self._connect_event.clear()
         if self._reader_task and not self._reader_task.done():
             self._reader_task.cancel()
             try:
@@ -134,6 +142,7 @@ class AgentConnection:
             raise ConnectionError(f'Agent call {method} timed out after {timeout}s')
         except websockets.exceptions.ConnectionClosed:
             self._connected = False
+            self._connect_event.clear()
             self._pending.pop(req_id, None)
             raise ConnectionError('Agent connection lost')
 
@@ -196,6 +205,7 @@ class AgentConnection:
                 logger.warning(f'Agent WebSocket connection lost: {e}')
 
             self._connected = False
+            self._connect_event.clear()
             # Notify all active subscribe_json() / exec_stream() iterators about disconnect
             self._disconnect_event.set()
             for queue in self._subscription_queues.values():
@@ -222,6 +232,7 @@ class AgentConnection:
                 )
                 self._connected = True
                 self._disconnect_event.clear()
+                self._connect_event.set()
                 delay = self._reconnect_delay
                 logger.info(f'Reconnected to monitoring agent at {self._agent_url}')
             except asyncio.CancelledError:
@@ -252,8 +263,11 @@ class AgentConnection:
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
-                    for t in pending:
-                        t.cancel()
+                    # Only cancel get_task if pending — never cancel disconnect_task
+                    # (it's reused across iterations; cancelling it would make it
+                    # appear in `done` on the next asyncio.wait call).
+                    if get_task in pending:
+                        get_task.cancel()
 
                     if disconnect_task in done:
                         get_task.cancel()
@@ -303,8 +317,8 @@ class AgentConnection:
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
-                    for t in pending:
-                        t.cancel()
+                    if get_task in pending:
+                        get_task.cancel()
 
                     if disconnect_task in done:
                         get_task.cancel()

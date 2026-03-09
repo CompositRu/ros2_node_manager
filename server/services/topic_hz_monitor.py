@@ -219,5 +219,9 @@ class TopicHzMonitor:
                     self._hz_values[topic] = None
                     self._notify_single_subscribers(topic, None)
 
+            if not self._running:
+                break
+            if not self._connection.connected:
+                await self._connection.wait_connected()
             if self._running:
-                await asyncio.sleep(retry_delay)
+                await asyncio.sleep(1)
