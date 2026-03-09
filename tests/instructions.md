@@ -15,10 +15,15 @@
      -p diagnostics_ratio:=0.2
 
 # Стресс-тест (500 нод, 1500 топиков)
-   ros2 run monitoring_agent load_generator --ros-args \
-     -p node_count:=500 \
-     -p topics_per_node:=3 \
-     -p publish_hz:=10.0
+   ros2 run monitoring_agent load_generator --ros-args -p node_count:=500 -p topics_per_node:=3
+
+(500 нод (150 lifecycle + 350 regular)
+1500 топиков (по 3 на ноду)
+Частоты от 0.1 до 200 Hz в зависимости от namespace
+Jitter из профилей (2–15%)
+Lifecycle churn каждые 30 сек (5 нод за раз)
+Diagnostics от 100 нод
+Всё детерминировано (seed=42))
 ```
 
 

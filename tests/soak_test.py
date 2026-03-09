@@ -178,6 +178,8 @@ class HealthSnapshot:
     agent_subscriptions: Optional[int] = None
     cpu_percent: Optional[float] = None
     threads: Optional[int] = None
+    app_cpu: Optional[float] = None      # backend (FastAPI/uvicorn) CPU %
+    agent_cpu: Optional[float] = None    # monitoring_agent process CPU %
 
 
 @dataclass
@@ -193,6 +195,12 @@ class SoakReport:
     rss_start_mb: Optional[float] = None
     rss_end_mb: Optional[float] = None
     rss_peak_mb: Optional[float] = None
+    app_cpu_samples: list = field(default_factory=list)
+    app_cpu_avg: Optional[float] = None
+    app_cpu_peak: Optional[float] = None
+    agent_cpu_samples: list = field(default_factory=list)
+    agent_cpu_avg: Optional[float] = None
+    agent_cpu_peak: Optional[float] = None
     reconnect_cycles: int = 0
     reconnect_recoveries: int = 0
     degradation_events: list = field(default_factory=list)
@@ -308,6 +316,7 @@ class HealthChecker:
                 proc = data.get("process", {})
                 snap.rss_mb = proc.get("rss_mb")
                 snap.cpu_percent = proc.get("cpu_percent")
+                snap.app_cpu = proc.get("cpu_percent")
                 snap.threads = proc.get("threads")
                 ws = data.get("websockets", {})
                 if isinstance(ws, dict):
@@ -318,6 +327,8 @@ class HealthChecker:
                 agent = data.get("agent", {})
                 if isinstance(agent, dict):
                     snap.agent_subscriptions = agent.get("subscriptions")
+                    if "cpu_percent" in agent:
+                        snap.agent_cpu = agent["cpu_percent"]
         except Exception:
             pass
 
@@ -472,7 +483,7 @@ class SoakRunner:
 
                 for topic in selected:
                     ws_path = f"/ws/topics/echo-single{topic}"
-                    label = f"echo:{topic.split('/')[-1]}"
+                    label = f"echo:{topic}"
                     self._echo_channels.append((ws_path, label))
 
                 self.report.echo_topics_count = len(selected)
@@ -638,8 +649,12 @@ class SoakRunner:
                 parts.append(f"RSS={snap.rss_mb:.0f}MB")
             if snap.ws_clients_total is not None:
                 parts.append(f"ws={snap.ws_clients_total}")
-            if snap.cpu_percent is not None:
+            if snap.app_cpu is not None:
+                parts.append(f"app_cpu={snap.app_cpu:.1f}%")
+            elif snap.cpu_percent is not None:
                 parts.append(f"cpu={snap.cpu_percent:.0f}%")
+            if snap.agent_cpu is not None:
+                parts.append(f"agent_cpu={snap.agent_cpu:.1f}%")
             if parts:
                 print(f" | {' '.join(parts)}", end="")
 
@@ -779,6 +794,19 @@ class SoakRunner:
                         f"Memory leak: RSS grew {growth*100:.0f}% "
                         f"({rss_values[0]:.0f}MB → {rss_values[-1]:.0f}MB)"
                     )
+
+        # CPU stats (per-process)
+        app_cpu_vals = [s.app_cpu for s in self.health.snapshots if s.app_cpu is not None]
+        if app_cpu_vals:
+            self.report.app_cpu_samples = [round(v, 1) for v in app_cpu_vals]
+            self.report.app_cpu_avg = round(sum(app_cpu_vals) / len(app_cpu_vals), 1)
+            self.report.app_cpu_peak = round(max(app_cpu_vals), 1)
+
+        agent_cpu_vals = [s.agent_cpu for s in self.health.snapshots if s.agent_cpu is not None]
+        if agent_cpu_vals:
+            self.report.agent_cpu_samples = [round(v, 1) for v in agent_cpu_vals]
+            self.report.agent_cpu_avg = round(sum(agent_cpu_vals) / len(agent_cpu_vals), 1)
+            self.report.agent_cpu_peak = round(max(agent_cpu_vals), 1)
 
         # Check zero throughput
         for client in self.clients:
@@ -953,6 +981,18 @@ class SoakRunner:
             print(f"\n  Memory: {self.report.rss_start_mb:.0f}MB → "
                   f"{self.report.rss_end_mb:.0f}MB "
                   f"(peak: {self.report.rss_peak_mb:.0f}MB, growth: {growth:+.0f}%)")
+
+        # CPU stats
+        if self.report.app_cpu_avg is not None or self.report.agent_cpu_avg is not None:
+            print(f"\n  CPU usage:")
+            if self.report.app_cpu_avg is not None:
+                print(f"    backend (FastAPI): avg={self.report.app_cpu_avg:.1f}%, "
+                      f"peak={self.report.app_cpu_peak:.1f}% "
+                      f"({len(self.report.app_cpu_samples)} samples)")
+            if self.report.agent_cpu_avg is not None:
+                print(f"    agent (monitoring_agent): avg={self.report.agent_cpu_avg:.1f}%, "
+                      f"peak={self.report.agent_cpu_peak:.1f}% "
+                      f"({len(self.report.agent_cpu_samples)} samples)")
 
         if self.report.reconnect_cycles:
             print(f"\n  Reconnects: {self.report.reconnect_recoveries}/"

@@ -39,6 +39,7 @@ _CHANNEL_QUEUE_SIZES = {
     'logs': 2000,           # critical — large buffer to avoid losing log entries
     'diagnostics': 1000,    # critical — large buffer for diagnostic data
     'mrm_state': 500,       # critical — safety state must not be lost
+    'topic.speed': 50,      # critical — dashboard speed, low traffic (single topic)
     'topic.echo': 200,      # data-heavy, high-frequency — smaller buffer, drops OK
     'topic.hz': 100,        # low traffic, periodic stats
 }
@@ -137,6 +138,9 @@ class AgentConnection:
             await self._ws.send(msg)
             result = await asyncio.wait_for(future, timeout=timeout)
             return result
+        except ConnectionError:
+            self._pending.pop(req_id, None)
+            raise
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)
             raise ConnectionError(f'Agent call {method} timed out after {timeout}s')

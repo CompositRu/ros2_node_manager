@@ -2,6 +2,8 @@
 
 from fastapi import APIRouter, HTTPException
 
+from ..connection.agent import ConnectionError as AgentConnectionError
+
 router = APIRouter(prefix="/api/topics", tags=["topics"])
 
 
@@ -16,6 +18,8 @@ async def get_topic_list():
     try:
         topics = await app_state.connection.ros2_topic_list()
         return {"topics": topics, "count": len(topics)}
+    except AgentConnectionError as e:
+        raise HTTPException(status_code=503, detail=f"Agent connection lost: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list topics: {e}")
 
@@ -34,6 +38,8 @@ async def get_topic_info(topic_name: str):
     try:
         info = await app_state.connection.ros2_topic_info(topic_name)
         return {"topic": topic_name, **info}
+    except AgentConnectionError as e:
+        raise HTTPException(status_code=503, detail=f"Agent connection lost: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get topic info: {e}")
 

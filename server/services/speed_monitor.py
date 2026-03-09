@@ -46,7 +46,7 @@ class SpeedMonitor:
         while self._running:
             try:
                 async for data in self.conn.subscribe_json(
-                    'topic.echo',
+                    'topic.speed',
                     {'topic': self.TOPIC, 'no_arr': True, 'field': 'twist.twist.linear'},
                 ):
                     if not self._running:
