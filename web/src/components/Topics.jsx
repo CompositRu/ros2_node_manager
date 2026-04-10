@@ -307,7 +307,7 @@ export function Topics({ connected }) {
             key={tab.id}
             onClick={() => setSubTab(tab.id)}
             className={`
-              px-4 py-2.5 text-sm font-medium border-b-2 transition-colors
+              px-4 py-2.5 text-sm font-medium border-b-2 transition-colors select-none
               ${subTab === tab.id
                 ? 'text-blue-400 border-blue-400'
                 : 'text-gray-400 border-transparent hover:text-gray-200 hover:border-gray-500'
