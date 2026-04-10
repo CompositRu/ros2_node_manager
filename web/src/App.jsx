@@ -75,7 +75,7 @@ function App() {
   }, []);
 
   return (
-    <div className="h-screen flex flex-col bg-gray-900 text-white select-none">
+    <div className="h-screen flex flex-col bg-gray-900 text-white select-text">
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b border-gray-700 bg-gray-800 flex-shrink-0">
         <div className="flex items-center gap-4">
